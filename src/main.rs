@@ -103,7 +103,7 @@ fn run_user_signup(db: DB) {
             db.put(username, bytes);
 
             // user can now use wallet
-            // run_wallet_actions(address);
+            // run_wallet_actions(secret_key, raw_key);
         }
         Err(e) => println!("Database error: {}", e),
     }
@@ -112,7 +112,10 @@ fn run_user_signup(db: DB) {
 /// Handle actions like querying balance and sending transactions after user has logged in or signed up
 fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
     // not the biggest fan of this, maybe just store the address
-    let address = generate_eth_address(&public_key[1..]);
+    let mut address = String::from("0x");
+    address.push_str(&hex::encode(generate_eth_address(&public_key[1..])));
+
+    println!("Your ETH address: {}", address);
 
     loop {
         println!("{}", "1) View account balance");
@@ -127,7 +130,7 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_getBalance",
-                        "params": [hex::encode(address), "latest"]
+                        "params": [address, "latest"]
                     })).unwrap()
                     .into_string().unwrap();
                 println!("{}", resp);
@@ -137,5 +140,25 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
             }
             _ => println!("{}", "Invalid option"),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn cannot_create_duplicate_user() {
+
+    }
+
+    #[test]
+    fn user_can_login_with_correct_password() {
+
+    }
+
+    #[test]
+    fn user_cannot_login_with_wrong_password() {
+
     }
 }
