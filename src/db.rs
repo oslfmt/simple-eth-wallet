@@ -5,12 +5,6 @@ pub fn open_db(path: &str) -> DB {
     DB::open_default(path).unwrap()
 }
 
-/// Inserts a k-v pair into the DB
-pub fn insert() {
-
-}
-
-
 #[cfg(test)]
 mod test {
     use super::*;

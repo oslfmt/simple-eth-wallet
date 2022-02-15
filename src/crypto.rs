@@ -18,10 +18,10 @@ pub fn generate_eth_address(public_key: &[u8]) -> [u8; 20] {
     result[12..].try_into().unwrap()
 }
 
-fn keccak256(input: &[u8]) -> Vec<u8> {
+pub fn keccak256(input: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(input);
-    hasher.finalize().to_vec()
+    hasher.finalize().try_into().unwrap()
 }
 
 fn store_keypair(secret_key: &[u8], public_key: &[u8; 65]) {
