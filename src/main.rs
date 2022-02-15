@@ -16,6 +16,12 @@ use crate::utils::read_user_input;
 use crate::db::*;
 use crate::crypto::*;
 
+// TODO: list
+// add HD wallet functionality
+// test login security
+// cleanup and modularize code
+// enable sending transactions
+
 #[derive(Decode, Encode, PartialEq, Debug)]
 struct UserData {
     password_hash: [u8; 32],
