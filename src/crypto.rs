@@ -10,7 +10,6 @@ pub fn generate_secp256k1_keypair() -> (secp256k1::SecretKey, secp256k1::PublicK
     let secp = Secp256k1::new();
     let mut rng = OsRng::new().expect("OsRng");
     secp.generate_keypair(&mut rng)
-    // store_keypair(&secret_key.serialize_secret(), &public_key.serialize_uncompressed());
 }
 
 pub fn generate_eth_address(public_key: &[u8]) -> [u8; 20] {
@@ -22,11 +21,6 @@ pub fn keccak256(input: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(input);
     hasher.finalize().try_into().unwrap()
-}
-
-fn store_keypair(secret_key: &[u8], public_key: &[u8; 65]) {
-    let mut file = OpenOptions::new().append(true).create(true).open("keypairs.db").unwrap();
-    writeln!(file, "{}", format!("{}{}{}", hex::encode(secret_key), " ", hex::encode(public_key)));
 }
 
 #[cfg(test)]
