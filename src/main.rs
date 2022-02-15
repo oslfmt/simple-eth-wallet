@@ -6,7 +6,8 @@ mod db;
 use std::io::Write;
 use std::fs::OpenOptions;
 
-use serde::{Serialize, Deserialize};
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use hex;
 
 use crate::login::{create_map_from_file};
@@ -14,9 +15,9 @@ use crate::utils::read_user_input;
 use crate::db::*;
 use crate::crypto::*;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Decode, Encode, PartialEq, Debug)]
 struct UserData {
-    password: String,
+    // TODO: add hashed password, which can be a byte array
     secret_key: Vec<u8>,
     public_key: Vec<u8>,
 }
@@ -85,12 +86,12 @@ fn main() {
 
                     // store in db
                     let data = UserData {
-                        password,
                         secret_key: secret_key.serialize_secret().to_vec(),
                         public_key: raw_key.to_vec(),
                     };
-                    // TODO: figure out serialization
-                    db.put(username, data);
+
+                    let bytes = data.as_ssz_bytes();
+                    db.put(username, bytes);
                 }
                 Err(e) => println!("{}", e),
             }
