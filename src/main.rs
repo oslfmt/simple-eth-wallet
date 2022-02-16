@@ -3,15 +3,11 @@ mod crypto;
 mod utils;
 mod db;
 
-use std::io::Write;
-use std::fs::OpenOptions;
-
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use hex;
-use rocksdb::{DB, Options};
+use rocksdb::{DB};
 
-use crate::login::{create_map_from_file};
 use crate::utils::read_user_input;
 use crate::db::*;
 use crate::crypto::*;
@@ -53,10 +49,7 @@ fn main() {
 
 /// Handles user login
 fn run_user_login(db: DB) {
-    println!("{}", "Enter Username: ");
-    let username = read_user_input();
-    println!("{}", "Enter Password: ");
-    let password = read_user_input();
+    let (username, password) = login::get_username_password();
     let password_hash = keccak256(password.as_bytes());
 
     // check that the user exists
@@ -80,14 +73,7 @@ fn run_user_login(db: DB) {
 
 /// Handles user signup
 fn run_user_signup(db: DB) {
-    // 1. get username and password from user
-    // 2. search if user exists in db, if so, cannot use username. if not, then:
-    // 3. generate a new keypair, and store (username, keypair) into db
-
-    println!("{}", "Enter Username: ");
-    let username = read_user_input();
-    println!("{}", "Enter Password: ");
-    let password = read_user_input();
+    let (username, password) = login::get_username_password();
 
     // if username exists, cannot use. Otherwise, generate new key pair and create new user!
     match db.get(&username) {
@@ -106,7 +92,10 @@ fn run_user_signup(db: DB) {
             };
 
             let bytes = data.as_ssz_bytes();
-            db.put(username, bytes);
+            match db.put(username, bytes) {
+                Ok(()) => (),
+                Err(e) => println!("Database error: {}", e),
+            };
 
             // user can now use wallet
             // run_wallet_actions(secret_key, raw_key);
@@ -130,6 +119,7 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
 
         match option {
             1 => {
+                // TODO: use serde to deserialize JSON and extract balance, then convert from hex to decimal to make readable
                 let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
                     .set("Content-Type", "application/json")
                     .send_json(ureq::json!({
@@ -142,7 +132,27 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                 println!("{}", resp);
             },
             2 => {
+                println!("Enter recipient address: ");
+                let recipient = read_user_input();
+                println!("Enter amount to send: ");
+                let amount = read_user_input().parse::<u64>().unwrap().to_be_bytes();
+
                 // TODO: Allow user to make a transaction (will need secret key)
+                let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+                    .set("Content-Type", "application/json")
+                    .send_json(ureq::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_sendTransaction",
+                        "params": [{
+                            "from": address,
+                            "to": recipient,
+                            "value": hex::encode(amount),
+                        }]
+                    })).unwrap()
+                    .into_string().unwrap();
+
+                println!("{}", resp);
             }
             _ => println!("{}", "Invalid option"),
         }

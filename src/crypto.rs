@@ -1,10 +1,6 @@
-use std::fs::OpenOptions;
-use std::io::Write;
-
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Secp256k1};
 use sha3::{Digest, Keccak256};
-use hex;
 
 pub fn generate_secp256k1_keypair() -> (secp256k1::SecretKey, secp256k1::PublicKey) {
     let secp = Secp256k1::new();
