@@ -1,11 +1,27 @@
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{Secp256k1};
+use secp256k1::{Secp256k1, Message, SecretKey, PublicKey};
 use sha3::{Digest, Keccak256};
 
-pub fn generate_secp256k1_keypair() -> (secp256k1::SecretKey, secp256k1::PublicKey) {
-    let secp = Secp256k1::new();
-    let mut rng = OsRng::new().expect("OsRng");
-    secp.generate_keypair(&mut rng)
+pub struct Secp {
+    pub secp256k1: Secp256k1<secp256k1::All>,
+}
+
+impl Secp {
+    pub fn new() -> Self {
+        Secp {
+            secp256k1: Secp256k1::new()
+        }
+    }
+
+    pub fn create_keypair(&self) -> (SecretKey, PublicKey) {
+        let mut rng = OsRng::new().expect("OsRng");
+        self.secp256k1.generate_keypair(&mut rng)
+    }
+
+    pub fn sign_message(&self, msg: &[u8], sk: SecretKey) -> secp256k1::ecdsa::Signature {
+        let message = Message::from_slice(msg).unwrap();
+        self.secp256k1.sign_ecdsa(&message, &sk)
+    }
 }
 
 pub fn generate_eth_address(public_key: &[u8]) -> [u8; 20] {
