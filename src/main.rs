@@ -7,10 +7,12 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use hex;
 use rocksdb::{DB};
+use secp256k1::SecretKey;
+use rlp::{Encodable, RlpStream};
 
 use crate::utils::read_user_input;
 use crate::db::*;
-use crate::crypto::*;
+use crate::crypto::{Secp, keccak256, generate_eth_address};
 
 // TODO: list
 // add HD wallet functionality
@@ -24,6 +26,23 @@ struct UserData {
     // TODO: encrypt the secret key
     secret_key: [u8; 32],
     public_key: Vec<u8>,
+}
+
+#[derive(Decode, Encode, PartialEq, Debug)]
+struct Transaction {
+    from: Vec<u8>,
+    to: Vec<u8>,
+    value: u64,
+/*    gas: Option<u128>,
+    gas_price: Option<u128>,
+    data: Option<Vec<u8>>,
+    nonce: Option<u32>,*/
+}
+
+impl Encodable for Transaction {
+    fn rlp_append(&self, s: &mut RlpStream) {
+
+    }
 }
 
 fn main() {
@@ -79,7 +98,8 @@ fn run_user_signup(db: DB) {
     match db.get(&username) {
         Ok(Some(_v)) => println!("Username already taken"),
         Ok(None) => {
-            let (secret_key, public_key) = generate_secp256k1_keypair();
+            let secp = Secp::new();
+            let (secret_key, public_key) = secp.create_keypair();
             let raw_key = public_key.serialize_uncompressed();
             let address = generate_eth_address(&raw_key[1..]);
             println!("Your ETH address: 0x{}", hex::encode(address));
@@ -119,36 +139,38 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
 
         match option {
             1 => {
-                // TODO: use serde to deserialize JSON and extract balance, then convert from hex to decimal to make readable
-                let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
-                    .set("Content-Type", "application/json")
-                    .send_json(ureq::json!({
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "eth_getBalance",
-                        "params": [address, "latest"]
-                    })).unwrap()
-                    .into_string().unwrap();
-                println!("{}", resp);
+                query_balance(&address);
             },
             2 => {
                 println!("Enter recipient address: ");
                 let recipient = read_user_input();
                 println!("Enter amount to send: ");
-                let amount = read_user_input().parse::<u64>().unwrap().to_be_bytes();
+                let amount: u64 = read_user_input().parse::<u64>().unwrap();
 
-                // TODO: Allow user to make a transaction (will need secret key)
+                // create a hashed message with all transaction fields and sign it
+                let txn = Transaction {
+                    from: hex::decode(&address[2..]).unwrap(),
+                    to: hex::decode(recipient).unwrap(),
+                    value: amount,
+                };
+                let txn_bytes = rlp::encode(&txn);
+                let txn_bytes_hashed = keccak256(&txn_bytes);
+
+                // call eth_sendRawTransaction
+                let secp = Secp::new();
+                let sig = secp.sign_message(&txn_bytes_hashed, SecretKey::from_slice(&secret_key).unwrap());
+                let byte_sig = sig.serialize_compact();
+                let mut hex_sig = String::from("0x");
+                hex_sig.push_str(&hex::encode(byte_sig));
+                println!("{}", hex_sig);
+
                 let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
                     .set("Content-Type", "application/json")
                     .send_json(ureq::json!({
                         "jsonrpc": "2.0",
                         "id": 1,
-                        "method": "eth_sendTransaction",
-                        "params": [{
-                            "from": address,
-                            "to": recipient,
-                            "value": hex::encode(amount),
-                        }]
+                        "method": "eth_sendRawTransaction",
+                        "params": [hex_sig]
                     })).unwrap()
                     .into_string().unwrap();
 
@@ -157,6 +179,20 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
             _ => println!("{}", "Invalid option"),
         }
     }
+}
+
+fn query_balance(address: &str) {
+    // TODO: use serde to deserialize JSON and extract balance, then convert from hex to decimal to make readable
+    let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+        .set("Content-Type", "application/json")
+        .send_json(ureq::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_getBalance",
+                        "params": [address, "latest"]
+                    })).unwrap()
+        .into_string().unwrap();
+    println!("{}", resp);
 }
 
 #[cfg(test)]

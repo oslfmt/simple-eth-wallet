@@ -13,3 +13,4 @@ ureq = { version = "2.4.0", features = ["json"] }
 rocksdb = "0.18.0"
 eth2_ssz = "0.4.0"
 eth2_ssz_derive = "0.3.0"
+rlp = "0.5.1"

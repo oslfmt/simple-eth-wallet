@@ -42,6 +42,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "hex",
+ "rlp",
  "rocksdb",
  "secp256k1",
  "sha3",
