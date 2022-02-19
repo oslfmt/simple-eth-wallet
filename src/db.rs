@@ -4,14 +4,3 @@ use rocksdb::{DB};
 pub fn open_db(path: &str) -> DB {
     DB::open_default(path).unwrap()
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_create_new_db() {
-        let path = "db";
-        create_db(path);
-    }
-}

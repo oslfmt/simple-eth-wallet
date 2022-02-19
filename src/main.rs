@@ -28,15 +28,17 @@ struct UserData {
     public_key: Vec<u8>,
 }
 
-#[derive(Decode, Encode, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 struct Transaction {
-    from: Vec<u8>,
+    nonce: u64,
+    gas_price: u128,
+    gas_limit: u128,
     to: Vec<u8>,
     value: u64,
-/*    gas: Option<u128>,
-    gas_price: Option<u128>,
-    data: Option<Vec<u8>>,
-    nonce: Option<u32>,*/
+    data: Vec<u8>,
+    v: Vec<u8>,
+    r: u8,
+    s: u8
 }
 
 impl Encodable for Transaction {
@@ -147,22 +149,40 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                 println!("Enter amount to send: ");
                 let amount: u64 = read_user_input().parse::<u64>().unwrap();
 
+                // 1. handle signing offline
+                // 2. Send RLP-encoded txn with eth_sendRawTransaction call
+
                 // create a hashed message with all transaction fields and sign it
-                let txn = Transaction {
-                    from: hex::decode(&address[2..]).unwrap(),
+                let mut txn = Transaction {
+                    nonce: 0,
+                    gas_price: 100000,
+                    gas_limit: 100000,
                     to: hex::decode(recipient).unwrap(),
                     value: amount,
+                    data: vec![],
+                    v: hex::decode("1c").unwrap(),
+                    r: 0,
+                    s: 0
                 };
+
+                // rlp encode transaction
+                // TODO: check if rlp is valid
                 let txn_bytes = rlp::encode(&txn);
+                println!("{:?}", txn_bytes);
+                // hash the RLP-encoded txn
                 let txn_bytes_hashed = keccak256(&txn_bytes);
 
-                // call eth_sendRawTransaction
                 let secp = Secp::new();
-                let sig = secp.sign_message(&txn_bytes_hashed, SecretKey::from_slice(&secret_key).unwrap());
-                let byte_sig = sig.serialize_compact();
-                let mut hex_sig = String::from("0x");
-                hex_sig.push_str(&hex::encode(byte_sig));
-                println!("{}", hex_sig);
+                // sign the hash with the private key
+                let mut sig = secp.sign_message(&txn_bytes_hashed, SecretKey::from_slice(&secret_key).unwrap());
+                // get the (r,s) values from sig?
+                sig.normalize_s();
+
+                // append (v,r,s) values to the txn
+/*                txn.r = sig.r;
+                txn.s = sig.s;*/
+                // re-encode txn?
+                let updated_bytes = hex::encode(rlp::encode(&txn));
 
                 let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
                     .set("Content-Type", "application/json")
@@ -170,7 +190,7 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_sendRawTransaction",
-                        "params": [hex_sig]
+                        "params": [updated_bytes]
                     })).unwrap()
                     .into_string().unwrap();
 
@@ -198,6 +218,30 @@ fn query_balance(address: &str) {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_rlp_encode_json() {
+        let txn = ureq::json!({
+            "nonce": "0x0",
+            "gasPrice": "0x09184e72a000",
+            "gasLimit": "0x30000",
+            "to": "0xb0920c523d582040f2bcb1bd7fb1c7c1ecebdb34",
+            "value": "0x00",
+            "data": "",
+            "v": "0x1c",
+            "r": '0',
+            "s": '0',
+        }).to_string();
+
+        let out = rlp::encode(&txn);
+        let hash = keccak256(&out);
+
+        let secp = Secp::new();
+        // sign the hash with the private key
+        let mut sig = secp.sign_message(&hash, SecretKey::from_slice(&secret_key).unwrap());
+        // get the (r,s) values from sig?
+        sig.normalize_s();
+    }
 
     #[test]
     fn cannot_create_duplicate_user() {
