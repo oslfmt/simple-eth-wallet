@@ -9,6 +9,7 @@ use hex;
 use rocksdb::{DB};
 use secp256k1::SecretKey;
 use rlp::{Encodable, RlpStream};
+use ethereumtx_sign::transaction;
 
 use crate::utils::read_user_input;
 use crate::db::*;
@@ -220,7 +221,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_rlp_encode_json() {
+    fn test_sign_transaction() {
         let txn = ureq::json!({
             "nonce": "0x0",
             "gasPrice": "0x09184e72a000",
@@ -228,19 +229,44 @@ mod test {
             "to": "0xb0920c523d582040f2bcb1bd7fb1c7c1ecebdb34",
             "value": "0x00",
             "data": "",
-            "v": "0x1c",
-            "r": '0',
-            "s": '0',
         }).to_string();
 
         let out = rlp::encode(&txn);
         let hash = keccak256(&out);
 
         let secp = Secp::new();
+        let (secret_key, public_key) = secp.create_keypair();
         // sign the hash with the private key
-        let mut sig = secp.sign_message(&hash, SecretKey::from_slice(&secret_key).unwrap());
-        // get the (r,s) values from sig?
-        sig.normalize_s();
+        let sig = secp.sign_message(&hash, secret_key);
+        let sig_bytes = sig.serialize_compact();
+        let sig_r = &sig_bytes[..32];
+        let sig_s = &sig_bytes[32..];
+
+        let tx = ureq::json!({
+            "nonce": "0x0",
+            "gasPrice": "0x09184e72a000",
+            "gasLimit": "0x30000",
+            "to": "0xb0920c523d582040f2bcb1bd7fb1c7c1ecebdb34",
+            "value": "0x00",
+            "data": "",
+            "v": "0x1c",
+            "r": hex::encode(sig_r),
+            "s": hex::encode(sig_s),
+        }).to_string();
+        let mut bytes = String::from("0x");
+        bytes.push_str(&hex::encode(rlp::encode(&tx)));
+        println!("{}", bytes);
+
+        let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+            .set("Content-Type", "application/json")
+            .send_json(ureq::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_sendRawTransaction",
+                        "params": [bytes]
+                    })).unwrap()
+            .into_string().unwrap();
+        println!("{}", resp);
     }
 
     #[test]
