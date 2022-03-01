@@ -10,6 +10,7 @@ use rocksdb::{DB};
 use secp256k1::SecretKey;
 use rlp::{Encodable, RlpStream};
 use ethereumtx_sign::transaction;
+use ethereumtx_sign::transaction::LegacyTransaction;
 
 use crate::utils::read_user_input;
 use crate::db::*;
@@ -148,50 +149,25 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                 println!("Enter recipient address: ");
                 let recipient = read_user_input();
                 println!("Enter amount to send: ");
-                let amount: u64 = read_user_input().parse::<u64>().unwrap();
+                let amount: u128 = read_user_input().parse::<u128>().unwrap();
 
                 // 1. handle signing offline
                 // 2. Send RLP-encoded txn with eth_sendRawTransaction call
+                let mut txn = LegacyTransaction::new(
+                    0, 10, 10,
+                    hex::decode(recipient).unwrap(),
+                    amount,vec![],1);
+                let raw_txn = txn.sign(&secret_key);
 
-                // create a hashed message with all transaction fields and sign it
-                let mut txn = Transaction {
-                    nonce: 0,
-                    gas_price: 100000,
-                    gas_limit: 100000,
-                    to: hex::decode(recipient).unwrap(),
-                    value: amount,
-                    data: vec![],
-                    v: hex::decode("1c").unwrap(),
-                    r: 0,
-                    s: 0
-                };
-
-                // rlp encode transaction
-                // TODO: check if rlp is valid
-                let txn_bytes = rlp::encode(&txn);
-                println!("{:?}", txn_bytes);
-                // hash the RLP-encoded txn
-                let txn_bytes_hashed = keccak256(&txn_bytes);
-
-                let secp = Secp::new();
-                // sign the hash with the private key
-                let mut sig = secp.sign_message(&txn_bytes_hashed, SecretKey::from_slice(&secret_key).unwrap());
-                // get the (r,s) values from sig?
-                sig.normalize_s();
-
-                // append (v,r,s) values to the txn
-/*                txn.r = sig.r;
-                txn.s = sig.s;*/
-                // re-encode txn?
-                let updated_bytes = hex::encode(rlp::encode(&txn));
-
+                let mut final_txn = String::from("0x");
+                final_txn.push_str(&hex::encode(raw_txn));
                 let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
                     .set("Content-Type", "application/json")
                     .send_json(ureq::json!({
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_sendRawTransaction",
-                        "params": [updated_bytes]
+                        "params": [final_txn]
                     })).unwrap()
                     .into_string().unwrap();
 
