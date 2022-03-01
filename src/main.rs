@@ -9,8 +9,8 @@ use hex;
 use rocksdb::{DB};
 use secp256k1::SecretKey;
 use rlp::{Encodable, RlpStream};
-use ethereumtx_sign::transaction;
-use ethereumtx_sign::transaction::LegacyTransaction;
+use ethereum_tx_sign;
+use web3;
 
 use crate::utils::read_user_input;
 use crate::db::*;
@@ -151,16 +151,21 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                 println!("Enter amount to send: ");
                 let amount: u128 = read_user_input().parse::<u128>().unwrap();
 
-                // 1. handle signing offline
-                // 2. Send RLP-encoded txn with eth_sendRawTransaction call
-                let mut txn = LegacyTransaction::new(
-                    0, 10, 10,
-                    hex::decode(recipient).unwrap(),
-                    amount,vec![],1);
-                let raw_txn = txn.sign(&secret_key);
+                let tx = ethereum_tx_sign::RawTransaction {
+                    nonce: web3::types::U256::from(0),
+                    to: Some(web3::types::H160::zero()),
+                    value: web3::types::U256::zero(),
+                    gas_price: web3::types::U256::from(10000),
+                    gas: web3::types::U256::from(21240),
+                    data: hex::decode(
+                        "7f7465737432000000000000000000000000000000000000000000000000000000600057"
+                    ).unwrap(),
+                };
 
+                let rlp_bytes = tx.sign(&web3::types::H256(secret_key), &1);
                 let mut final_txn = String::from("0x");
-                final_txn.push_str(&hex::encode(raw_txn));
+                final_txn.push_str(&hex::encode(rlp_bytes));
+
                 let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
                     .set("Content-Type", "application/json")
                     .send_json(ureq::json!({
