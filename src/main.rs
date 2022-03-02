@@ -7,12 +7,10 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use hex;
 use rocksdb::{DB};
-use secp256k1::SecretKey;
-use rlp::{Encodable, RlpStream};
-use ethereum_tx_sign;
-use web3;
+use ethereum_tx_sign::RawTransaction;
+use serde_json::Value;
 
-use crate::utils::read_user_input;
+use crate::utils::{read_user_input, wei_to_eth};
 use crate::db::*;
 use crate::crypto::{Secp, keccak256, generate_eth_address};
 
@@ -22,31 +20,15 @@ use crate::crypto::{Secp, keccak256, generate_eth_address};
 // cleanup and modularize code
 // enable sending transactions
 
+const RINKEBY_CHAIN_ID: u8 = 4;
+
 #[derive(Decode, Encode, PartialEq, Debug)]
 struct UserData {
     password_hash: [u8; 32],
     // TODO: encrypt the secret key
     secret_key: [u8; 32],
     public_key: Vec<u8>,
-}
-
-#[derive(PartialEq, Debug)]
-struct Transaction {
-    nonce: u64,
-    gas_price: u128,
-    gas_limit: u128,
-    to: Vec<u8>,
-    value: u64,
-    data: Vec<u8>,
-    v: Vec<u8>,
-    r: u8,
-    s: u8
-}
-
-impl Encodable for Transaction {
-    fn rlp_append(&self, s: &mut RlpStream) {
-
-    }
+    // TODO: add nonce
 }
 
 fn main() {
@@ -151,18 +133,16 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
                 println!("Enter amount to send: ");
                 let amount: u128 = read_user_input().parse::<u128>().unwrap();
 
-                let tx = ethereum_tx_sign::RawTransaction {
-                    nonce: web3::types::U256::from(0),
-                    to: Some(web3::types::H160::zero()),
-                    value: web3::types::U256::zero(),
-                    gas_price: web3::types::U256::from(10000),
-                    gas: web3::types::U256::from(21240),
-                    data: hex::decode(
-                        "7f7465737432000000000000000000000000000000000000000000000000000000600057"
-                    ).unwrap(),
-                };
+                let tx = RawTransaction::new(
+                    0,
+                    hex::decode(recipient).unwrap(),
+                    amount,
+                    10000,
+                    21240,
+                    vec![]
+                );
 
-                let rlp_bytes = tx.sign(&web3::types::H256(secret_key), &1);
+                let rlp_bytes = tx.sign(&secret_key, &RINKEBY_CHAIN_ID);
                 let mut final_txn = String::from("0x");
                 final_txn.push_str(&hex::encode(rlp_bytes));
 
@@ -184,8 +164,7 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
 }
 
 fn query_balance(address: &str) {
-    // TODO: use serde to deserialize JSON and extract balance, then convert from hex to decimal to make readable
-    let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+    let resp: Value = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
         .set("Content-Type", "application/json")
         .send_json(ureq::json!({
                         "jsonrpc": "2.0",
@@ -193,8 +172,20 @@ fn query_balance(address: &str) {
                         "method": "eth_getBalance",
                         "params": [address, "latest"]
                     })).unwrap()
-        .into_string().unwrap();
-    println!("{}", resp);
+        .into_json().unwrap();
+
+    match resp["result"].as_str() {
+        Some(s) => {
+            match s.strip_prefix("0x") {
+                Some(v) => {
+                    let balance = u128::from_str_radix(v, 16).unwrap();
+                    println!("Balance: {} ETH", wei_to_eth(balance));
+                },
+                None => println!("String doesn't start with 0x"),
+            }
+        },
+        None => println!("Value is not a string"),
+    };
 }
 
 #[cfg(test)]

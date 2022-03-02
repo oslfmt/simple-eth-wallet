@@ -10,3 +10,7 @@ pub fn read_user_input() -> String {
     }
     input
 }
+
+pub fn wei_to_eth(amount: u128) -> String {
+    (amount as f64 / 10_f64.powf(18 as f64)).to_string()
+}
