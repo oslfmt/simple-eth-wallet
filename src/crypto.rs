@@ -8,9 +8,7 @@ pub struct Secp {
 
 impl Secp {
     pub fn new() -> Self {
-        Secp {
-            secp256k1: Secp256k1::new()
-        }
+        Secp { secp256k1: Secp256k1::new() }
     }
 
     pub fn create_keypair(&self) -> (SecretKey, PublicKey) {

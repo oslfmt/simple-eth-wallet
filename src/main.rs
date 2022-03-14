@@ -1,7 +1,5 @@
-mod login;
 mod crypto;
 mod utils;
-mod db;
 
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -11,14 +9,11 @@ use ethereum_tx_sign::RawTransaction;
 use serde_json::Value;
 
 use crate::utils::{read_user_input, wei_to_eth};
-use crate::db::*;
 use crate::crypto::{Secp, keccak256, generate_eth_address};
 
 // TODO: list
 // add nonce management
 // add HD wallet functionality
-// test login security
-// cleanup and modularize code
 
 const RINKEBY_CHAIN_ID: u8 = 4;
 
@@ -29,13 +24,14 @@ struct UserData {
     secret_key: [u8; 32],
     public_key: Vec<u8>,
     // TODO: add nonce
+    // nonce: u64,
 }
 
 fn main() {
     println!("{}", "Starting Rwallet1.0, a simple ETH wallet...");
 
     // open the database containing login and keypair info
-    let db = open_db("db");
+    let db = utils::open_db("db");
 
     println!("{}", "1) Login");
     println!("{}", "2) Signup");
@@ -54,7 +50,7 @@ fn main() {
 
 /// Handles user login
 fn run_user_login(db: DB) {
-    let (username, password) = login::get_username_password();
+    let (username, password) = utils::get_username_password();
     let password_hash = keccak256(password.as_bytes());
 
     // check that the user exists
@@ -78,7 +74,7 @@ fn run_user_login(db: DB) {
 
 /// Handles user signup
 fn run_user_signup(db: DB) {
-    let (username, password) = login::get_username_password();
+    let (username, password) = utils::get_username_password();
 
     // if username exists, cannot use. Otherwise, generate new key pair and create new user!
     match db.get(&username) {
@@ -168,7 +164,7 @@ fn send_transaction(secret_key: &[u8]) {
 
     // TODO: add gas price and limit selection (need to be high enough to be mined)
     let tx = RawTransaction::new(
-        0,
+        1,
         hex::decode(recipient).unwrap(),
         amount,
         2000000000,
