@@ -1,12 +1,18 @@
 mod crypto;
 mod utils;
 
+use std::path::Path;
+use std::fs::File;
+use std::io::prelude::*;
+
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use hex;
 use rocksdb::{DB};
 use ethereum_tx_sign::RawTransaction;
+use serde::{Serialize, Deserialize};
 use serde_json::Value;
+use bip39::{Mnemonic, MnemonicType, Language, Seed};
 
 use crate::utils::{read_user_input, wei_to_eth};
 use crate::crypto::{Secp, keccak256, generate_eth_address};
@@ -27,83 +33,132 @@ struct UserData {
     // nonce: u64,
 }
 
+#[derive(Serialize, Deserialize)]
+struct UserDataTwo {
+    password_hash: [u8; 32],
+    // TODO: encrypt the seed
+    seed: Vec<u8>,
+}
+
 fn main() {
-    println!("{}", "Starting Rwallet1.0, a simple ETH wallet...");
+    println!("{}", "Starting Rwallet2.0, an HD wallet...");
 
     // open the database containing login and keypair info
     let db = utils::open_db("db");
 
-    println!("{}", "1) Login");
-    println!("{}", "2) Signup");
+    if !Path::new("./userdata.txt").exists() {
+        display_menu_one();
+    } else {
+        display_menu_two();
+    }
+}
+
+fn display_menu_one() {
+    println!("{}", "1) Create a new wallet");
+    println!("{}", "2) Import wallet");
     let option = read_user_input().parse::<u8>().unwrap();
 
     match option {
         1 => {
-            run_user_login(db);
+            create_new_wallet();
         },
         2 => {
-            run_user_signup(db);
+            import_wallet();
         },
         _ => println!("{}", "Invalid option"),
     }
 }
 
-/// Handles user login
-fn run_user_login(db: DB) {
-    let (username, password) = utils::get_username_password();
-    let password_hash = keccak256(password.as_bytes());
+fn display_menu_two() {
+    println!("{}", "1) Login");
+    println!("{}", "2) Import wallet");
+    let option = read_user_input().parse::<u8>().unwrap();
 
-    // check that the user exists
-    match db.get(&username) {
-        Ok(Some(d)) => {
-            // deserialize data
-            let decoded_data: UserData = UserData::from_ssz_bytes(&d).unwrap();
-            if password_hash == decoded_data.password_hash {
-                println!("{}", "Successfully logged in");
-
-                // the main functionality of the wallet occurs here in a loop
-                run_wallet_actions(decoded_data.secret_key, decoded_data.public_key);
-            } else {
-                println!("{}", "Invalid password");
-            }
+    match option {
+        1 => {
+            run_user_login();
         },
-        Ok(None) => println!("{}", "No user account found. You can sign up."),
-        Err(e) => println!("{}", e),
-    };
+        2 => {
+            // TODO: check that it should overwrite current file contents
+            import_wallet();
+        },
+        _ => println!("{}", "Invalid option"),
+    }
 }
 
-/// Handles user signup
-fn run_user_signup(db: DB) {
-    let (username, password) = utils::get_username_password();
+fn import_wallet() {
+    // NOTE: importing wallet overwrites old wallet data. You can only have one wallet at any given time
+    // recover seed
+    println!("Enter your mnemonic phrase to restore your wallet:\n");
+    let phrase = read_user_input();
+    let mnemonic = Mnemonic::from_phrase(&phrase, Language::English).unwrap();
+    let seed = Seed::new(&mnemonic, "");
 
-    // if username exists, cannot use. Otherwise, generate new key pair and create new user!
-    match db.get(&username) {
-        Ok(Some(_v)) => println!("Username already taken"),
-        Ok(None) => {
-            let secp = Secp::new();
-            let (secret_key, public_key) = secp.create_keypair();
-            let raw_key = public_key.serialize_uncompressed();
-            let address = generate_eth_address(&raw_key[1..]);
-            println!("Your ETH address: 0x{}", hex::encode(address));
+    // create new password
+    println!("{}", "Create Password: ");
+    let password = read_user_input();
 
-            // store in db
-            let data = UserData {
-                password_hash: keccak256(password.as_bytes()),
-                secret_key: secret_key.serialize_secret(),
-                public_key: raw_key.to_vec(),
-            };
+    let data = UserDataTwo {
+        password_hash: keccak256(password.as_bytes()),
+        seed: seed.as_bytes().to_vec(),
+    };
+    let data_bytes = serde_json::to_vec(&data).unwrap();
 
-            let bytes = data.as_ssz_bytes();
-            match db.put(username, bytes) {
-                Ok(()) => (),
-                Err(e) => println!("Database error: {}", e),
-            };
+    // write to file
+    let mut file = File::create("userdata.txt").unwrap();
+    file.write_all(&data_bytes);
 
-            // user can now use wallet
-            // run_wallet_actions(secret_key, raw_key);
-        }
-        Err(e) => println!("Database error: {}", e),
+    // TODO: use seed to access wallet
+    // run_wallet_actions();
+}
+
+/// Handles user login
+fn run_user_login() {
+    // load in data file
+    let mut file = File::open("./userdata.txt").unwrap();
+    let mut buf = String::new();
+    file.read_to_string(&mut buf);
+    let d: UserDataTwo = serde_json::from_str(&buf).unwrap();
+
+    // prompt user to enter password
+    println!("{}", "Enter Password: ");
+    let password = read_user_input();
+    let password_hash = keccak256(password.as_bytes());
+
+    // authenticate the password
+    if d.password_hash == password_hash {
+        // run_wallet_actions();
+    } else {
+        println!("Invalid password");
     }
+}
+
+fn create_new_wallet() {
+    // create new password used for securing local app
+    println!("{}", "Enter New Password: ");
+    let password = read_user_input();
+
+    // create a new mnemonic phrase
+    let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+    let phrase = mnemonic.phrase();
+    println!("Here is your secret recovery phrase: {}\n", phrase);
+    println!("It is used to derive all your accounts and private keys. Thus, memorize it and keep it hidden.");
+
+    // generate seed (no BIP39 password for now)
+    let seed = Seed::new(&mnemonic, "");
+
+    let data = UserDataTwo {
+        password_hash: keccak256(password.as_bytes()),
+        seed: seed.as_bytes().to_vec(),
+    };
+    let data_bytes = serde_json::to_vec(&data).unwrap();
+
+    // write to file
+    let mut file = File::create("userdata.txt").unwrap();
+    file.write_all(&data_bytes);
+
+    // TODO: use seed to derive all other keys in wallet
+    // run_wallet_actions();
 }
 
 /// Handle actions like querying balance and sending transactions after user has logged in or signed up
@@ -189,27 +244,36 @@ fn send_transaction(secret_key: &[u8]) {
     println!("{}", resp);
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+/// DEPRECATED
+fn run_user_signup(db: DB) {
+    let (username, password) = utils::get_username_password();
 
-    #[test]
-    fn test_sign_transaction() {
+    // if username exists, cannot use. Otherwise, generate new key pair and create new user!
+    match db.get(&username) {
+        Ok(Some(_v)) => println!("Username already taken"),
+        Ok(None) => {
+            let secp = Secp::new();
+            let (secret_key, public_key) = secp.create_keypair();
+            let raw_key = public_key.serialize_uncompressed();
+            let address = generate_eth_address(&raw_key[1..]);
+            println!("Your ETH address: 0x{}", hex::encode(address));
 
-    }
+            // store in db
+            let data = UserData {
+                password_hash: keccak256(password.as_bytes()),
+                secret_key: secret_key.serialize_secret(),
+                public_key: raw_key.to_vec(),
+            };
 
-    #[test]
-    fn cannot_create_duplicate_user() {
+            let bytes = data.as_ssz_bytes();
+            match db.put(username, bytes) {
+                Ok(()) => (),
+                Err(e) => println!("Database error: {}", e),
+            };
 
-    }
-
-    #[test]
-    fn user_can_login_with_correct_password() {
-
-    }
-
-    #[test]
-    fn user_cannot_login_with_wrong_password() {
-
+            // user can now use wallet
+            // run_wallet_actions(secret_key, raw_key);
+        }
+        Err(e) => println!("Database error: {}", e),
     }
 }
