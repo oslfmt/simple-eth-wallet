@@ -51,7 +51,7 @@ dependencies = [
  "hex",
  "rlp",
  "rocksdb",
- "secp256k1 0.21.3",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha3",
@@ -303,7 +303,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "948e343aa022785c07193f41ed37adfd9dd0350368060803b8302c7f798e8306"
 dependencies = [
- "ethereum-types 0.12.1",
+ "ethereum-types",
  "smallvec",
 ]
 
@@ -334,30 +334,14 @@ dependencies = [
 
 [[package]]
 name = "ethereum-tx-sign"
-version = "3.0.4"
+version = "4.0.0"
 dependencies = [
- "ethereum-types 0.11.0",
  "num-traits",
  "rlp",
- "secp256k1 0.20.3",
+ "secp256k1",
  "serde",
  "serde_derive",
- "serde_json",
  "tiny-keccak",
-]
-
-[[package]]
-name = "ethereum-types"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f64b5df66a228d85e4b17e5d6c6aa43b0310898ffe8a85988c4c032357aaabfd"
-dependencies = [
- "ethbloom",
- "fixed-hash",
- "impl-rlp",
- "impl-serde",
- "primitive-types 0.9.1",
- "uint",
 ]
 
 [[package]]
@@ -370,7 +354,7 @@ dependencies = [
  "fixed-hash",
  "impl-rlp",
  "impl-serde",
- "primitive-types 0.10.1",
+ "primitive-types",
  "uint",
 ]
 
@@ -751,19 +735,6 @@ checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 
 [[package]]
 name = "primitive-types"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06345ee39fbccfb06ab45f3a1a5798d9dafa04cb8921a76d227040003a234b0e"
-dependencies = [
- "fixed-hash",
- "impl-codec",
- "impl-rlp",
- "impl-serde",
- "uint",
-]
-
-[[package]]
-name = "primitive-types"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05e4722c697a58a99d5d06a08c30821d7c082a4632198de1eaa5a6c22ef42373"
@@ -1083,15 +1054,6 @@ checksum = "d53dcdb7c9f8158937a7981b48accfd39a43af418591a5d008c7b22b5e1b7ca4"
 dependencies = [
  "ring",
  "untrusted",
-]
-
-[[package]]
-name = "secp256k1"
-version = "0.20.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d03ceae636d0fed5bae6a7f4f664354c5f4fcedf6eef053fef17e49f837d0a"
-dependencies = [
- "secp256k1-sys",
 ]
 
 [[package]]

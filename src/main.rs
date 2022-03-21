@@ -220,7 +220,7 @@ fn send_transaction(secret_key: &[u8]) {
     // TODO: add gas price and limit selection (need to be high enough to be mined)
     let tx = RawTransaction::new(
         1,
-        hex::decode(recipient).unwrap(),
+        hex::decode(recipient).unwrap().try_into().unwrap(),
         amount,
         2000000000,
         1000000,
