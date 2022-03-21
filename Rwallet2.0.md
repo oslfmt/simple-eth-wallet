@@ -1,6 +1,7 @@
 # Rwallet2.0
 ## An HD Wallet
 
+### Notes on Security
 - previously we had a traditional account-based signup/signin. Users create
 a username and password. This is stored in a database. On later accesses to
 this account, one must enter the username password pair. Only if authorized,
@@ -30,4 +31,19 @@ passphrase.
   - The BIP39-passphrase serves as an extra layer of security for the mnemonic
     phrase. It does not secure the local app at all.
   - The generic passphrase secures the app itself from local breaches.
+
+### BIP-39
+BIP-39 generates a mnemonic passphrase which essentially encodes the seed used
+to generate all keys in the wallet. Essentially, the mnemonic words are used
+to encode 128-256 bits of entropy. Each word encodes 11 bits of entropy. This
+is much easier than say, memorizing 128 1s and 0s; instead, you just memorize
+12 words. The entropy itself is used to derive a longer 512-bit seed. This is
+done by using a key-stretching function, which essentially stretches the entropy
+with 2048 rounds of hashing, in the end, generating a 512-bit hash. This is
+the seed of the wallet. 
+
+- I would like to explore how the salt works and how it adds extra security
+to prevent against brute force attacks
+
+### BIP-32
 
