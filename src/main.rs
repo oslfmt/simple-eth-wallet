@@ -13,6 +13,7 @@ use ethereum_tx_sign::RawTransaction;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
+use ed25519_dalek_bip32::{DerivationPath, ExtendedSecretKey, ChildIndex, PublicKey};
 
 use crate::utils::{read_user_input, wei_to_eth};
 use crate::crypto::{Secp, keccak256, generate_eth_address};
@@ -147,6 +148,14 @@ fn create_new_wallet() {
     // generate seed (no BIP39 password for now)
     let seed = Seed::new(&mnemonic, "");
 
+    // use seed to derive master private key
+    // TODO: In the future, follow BIP-44 spec to generate 1 account by default. After that have option to add new accounts
+    // CHECK: this returns ed25519 public key? Not secp256k1??
+    let pub_key = generate_default_account(seed.as_bytes());
+    let address = generate_eth_address(&pub_key.to_bytes());
+
+    println!("ETH Address: 0x{}", hex::encode(address));
+
     let data = UserDataTwo {
         password_hash: keccak256(password.as_bytes()),
         seed: seed.as_bytes().to_vec(),
@@ -157,8 +166,16 @@ fn create_new_wallet() {
     let mut file = File::create("userdata.txt").unwrap();
     file.write_all(&data_bytes);
 
-    // TODO: use seed to derive all other keys in wallet
     // run_wallet_actions();
+}
+
+/// Generates the first account by default, when user first creates the wallet
+fn generate_default_account(seed_bytes: &[u8]) -> PublicKey {
+    let master_private_key = ExtendedSecretKey::from_seed(seed_bytes).unwrap();
+    // this is key: m/0'
+    let child_prv = master_private_key.derive_child(ChildIndex::Hardened(0)).unwrap();
+    // TODO: each time a user creates a new key, we can store this key in storage, so we don't have to rederive it everytime?
+    child_prv.public_key()
 }
 
 /// Handle actions like querying balance and sending transactions after user has logged in or signed up
