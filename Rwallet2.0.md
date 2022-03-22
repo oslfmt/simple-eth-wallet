@@ -46,4 +46,41 @@ the seed of the wallet.
 to prevent against brute force attacks
 
 ### BIP-32
+The goal of a deterministic wallet is to derive many keys from a single master
+key in a deterministic fashion. In this way, you only have to remember and
+secure the master key, while getting a potentially unbounded number of keys.
+This allows you to use one wallet, and have many accounts available for you to
+use, thus bettering user privacy.
+
+The simplist way to do this is by taking a master (private) key and hashing it.
+Hash functions produce a random yet deterministic value. The result serves as
+the child private key. If you use something like SHA-256, you will get a 256-bit
+number, which is exactly what a private key is. This private key can be used
+to derive a corresponding public key. Furthermore, the private key can also be
+hashed, deriving a grandchild private key. One may continue this process
+indefinitely, deriving a single, long chain of private keys.
+
+So where do HD wallets come into play?
+- With the simple design, we can only generate one long chain, ie, each key can
+only generate one other child key. What if we wanted each key to be able to
+generate many child keys. This would form a branching structure. Why would this
+be useful? Well each branch could serve a specific purpose.
+- The second thing is if we wanted to share our wallet, it happens on an all
+or nothing basis because there is only one chain. With a branch structure however,
+we can share only particular branches of keys, thus keeping the rest secure.
+- So the main advantage of an HD wallet is its tree-like structure. The CKD functions
+don't require a tree structure, we can use it in a simple deterministic wallet
+just as easily.
+  - Going from private parent to private child is easy enough (same hashing)
+  - Going from public parent to public child can also be done, but the math
+  is slightly more complex
+  - Going from private parent to public child is done using a combination of steps
+
+- By adding an index, we can derive many keys from one parent key. The index
+essentially serves as a nonce, and each child key can be deterministically generated
+by simply specifying the index.
+- But why do we need a chain code? In the spec it says this adds an extra 256 bits
+of entropy, thus making the derivation functions not rely solely on the keys.
+  - The argument is that the chain code adds an extra layer of security to the xpub
+  keys. However, the chain code is not really necessary
 
