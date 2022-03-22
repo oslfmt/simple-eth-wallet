@@ -29,3 +29,19 @@ pub fn get_username_password() -> (String, String) {
 
     (username, password)
 }
+
+/// Returns the XOR of two byte arrays. The byte arrays must be the same length
+pub fn xor(a: &[u8], b: &[u8]) -> Result<[u8; usize], String> {
+    if a.len() == b.len() {
+        const length: usize = a.len();
+        let mut result: [u8; length] = [u8; length];
+
+        for i in 0..32 {
+            result[i] = a[i] ^ b[i];
+        }
+
+        Ok(result)
+    } else {
+        Err(String::from("Byte arrays must be same length"))
+    }
+}

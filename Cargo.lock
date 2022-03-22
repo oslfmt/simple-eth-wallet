@@ -335,6 +335,8 @@ dependencies = [
 [[package]]
 name = "ethereum-tx-sign"
 version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4d365cd043b883e849a8ed360d208904be8e77167ae9214ebf9cec659a43e17"
 dependencies = [
  "num-traits",
  "rlp",

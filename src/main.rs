@@ -21,6 +21,12 @@ use crate::crypto::{Secp, keccak256, generate_eth_address};
 // add nonce management
 // add HD wallet functionality
 
+// TODO: store seed more securely
+// 1. hash user password
+// 2. xor password hash the seed
+// 3. store result in database. Essentially, the seed is encrypted by xor with password hash
+// 4. When user logs back in, the hash is xor with the stored result, to get the original seed back
+
 const RINKEBY_CHAIN_ID: u8 = 4;
 
 #[derive(Decode, Encode, PartialEq, Debug)]
@@ -35,9 +41,7 @@ struct UserData {
 
 #[derive(Serialize, Deserialize)]
 struct UserDataTwo {
-    password_hash: [u8; 32],
-    // TODO: encrypt the seed
-    seed: Vec<u8>,
+    pad: u128
 }
 
 fn main() {
@@ -99,8 +103,8 @@ fn import_wallet() {
     let password = read_user_input();
 
     let data = UserDataTwo {
-        password_hash: keccak256(password.as_bytes()),
-        seed: seed.as_bytes().to_vec(),
+        // TODO: does XORing two byte arrays work as expected?
+        pad: seed.as_bytes() ^ keccak256(password.as_bytes())
     };
     let data_bytes = serde_json::to_vec(&data).unwrap();
 
@@ -148,8 +152,7 @@ fn create_new_wallet() {
     let seed = Seed::new(&mnemonic, "");
 
     let data = UserDataTwo {
-        password_hash: keccak256(password.as_bytes()),
-        seed: seed.as_bytes().to_vec(),
+        pad: seed ^ keccak256(password.as_bytes())
     };
     let data_bytes = serde_json::to_vec(&data).unwrap();
 
