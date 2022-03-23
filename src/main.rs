@@ -14,8 +14,8 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
 
-use crate::utils::{read_user_input, wei_to_eth};
-use crate::crypto::{Secp, keccak256, generate_eth_address};
+use crate::utils::{read_user_input, wei_to_eth, xor};
+use crate::crypto::{Secp, keccak256, keccak512, generate_eth_address};
 
 // TODO: list
 // add nonce management
@@ -41,7 +41,7 @@ struct UserData {
 
 #[derive(Serialize, Deserialize)]
 struct UserDataTwo {
-    pad: u128
+    pad: Vec<u8>
 }
 
 fn main() {
@@ -101,11 +101,9 @@ fn import_wallet() {
     // create new password
     println!("{}", "Create Password: ");
     let password = read_user_input();
+    let pad = xor(seed.as_bytes(), &keccak256(password.as_bytes())).unwrap().to_vec();
 
-    let data = UserDataTwo {
-        // TODO: does XORing two byte arrays work as expected?
-        pad: seed.as_bytes() ^ keccak256(password.as_bytes())
-    };
+    let data = UserDataTwo { pad };
     let data_bytes = serde_json::to_vec(&data).unwrap();
 
     // write to file
@@ -127,14 +125,12 @@ fn run_user_login() {
     // prompt user to enter password
     println!("{}", "Enter Password: ");
     let password = read_user_input();
-    let password_hash = keccak256(password.as_bytes());
+    let password_hash = keccak512(password.as_bytes());
+    let seed = xor(&password_hash, &d.pad).unwrap();
 
-    // authenticate the password
-    if d.password_hash == password_hash {
-        // run_wallet_actions();
-    } else {
-        println!("Invalid password");
-    }
+    // use seed to generate wallet accounts
+    // the current problem is that if the password is wrong, there's no way to tell the user that.
+    // the seed will still be derived, but it will be incorrect.
 }
 
 fn create_new_wallet() {
@@ -150,10 +146,9 @@ fn create_new_wallet() {
 
     // generate seed (no BIP39 password for now)
     let seed = Seed::new(&mnemonic, "");
+    let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
 
-    let data = UserDataTwo {
-        pad: seed ^ keccak256(password.as_bytes())
-    };
+    let data = UserDataTwo { pad };
     let data_bytes = serde_json::to_vec(&data).unwrap();
 
     // write to file
