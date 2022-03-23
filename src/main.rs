@@ -15,12 +15,18 @@ use serde_json::Value;
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
 use ed25519_dalek_bip32::{DerivationPath, ExtendedSecretKey, ChildIndex, PublicKey};
 
-use crate::utils::{read_user_input, wei_to_eth};
-use crate::crypto::{Secp, keccak256, generate_eth_address};
+use crate::utils::{read_user_input, wei_to_eth, xor};
+use crate::crypto::{Secp, keccak256, keccak512, generate_eth_address};
 
 // TODO: list
 // add nonce management
 // add HD wallet functionality
+
+// TODO: store seed more securely
+// 1. hash user password
+// 2. xor password hash the seed
+// 3. store result in database. Essentially, the seed is encrypted by xor with password hash
+// 4. When user logs back in, the hash is xor with the stored result, to get the original seed back
 
 const RINKEBY_CHAIN_ID: u8 = 4;
 
@@ -36,9 +42,7 @@ struct UserData {
 
 #[derive(Serialize, Deserialize)]
 struct UserDataTwo {
-    password_hash: [u8; 32],
-    // TODO: encrypt the seed
-    seed: Vec<u8>,
+    pad: Vec<u8>
 }
 
 fn main() {
@@ -98,11 +102,9 @@ fn import_wallet() {
     // create new password
     println!("{}", "Create Password: ");
     let password = read_user_input();
+    let pad = xor(seed.as_bytes(), &keccak256(password.as_bytes())).unwrap().to_vec();
 
-    let data = UserDataTwo {
-        password_hash: keccak256(password.as_bytes()),
-        seed: seed.as_bytes().to_vec(),
-    };
+    let data = UserDataTwo { pad };
     let data_bytes = serde_json::to_vec(&data).unwrap();
 
     // write to file
@@ -124,14 +126,12 @@ fn run_user_login() {
     // prompt user to enter password
     println!("{}", "Enter Password: ");
     let password = read_user_input();
-    let password_hash = keccak256(password.as_bytes());
+    let password_hash = keccak512(password.as_bytes());
+    let seed = xor(&password_hash, &d.pad).unwrap();
 
-    // authenticate the password
-    if d.password_hash == password_hash {
-        // run_wallet_actions();
-    } else {
-        println!("Invalid password");
-    }
+    // use seed to generate wallet accounts
+    // the current problem is that if the password is wrong, there's no way to tell the user that.
+    // the seed will still be derived, but it will be incorrect.
 }
 
 fn create_new_wallet() {
@@ -147,7 +147,8 @@ fn create_new_wallet() {
 
     // generate seed (no BIP39 password for now)
     let seed = Seed::new(&mnemonic, "");
-
+    let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
+    
     // use seed to derive master private key
     // TODO: In the future, follow BIP-44 spec to generate 1 account by default. After that have option to add new accounts
     // CHECK: this returns ed25519 public key? Not secp256k1??
@@ -156,10 +157,7 @@ fn create_new_wallet() {
 
     println!("ETH Address: 0x{}", hex::encode(address));
 
-    let data = UserDataTwo {
-        password_hash: keccak256(password.as_bytes()),
-        seed: seed.as_bytes().to_vec(),
-    };
+    let data = UserDataTwo { pad };
     let data_bytes = serde_json::to_vec(&data).unwrap();
 
     // write to file

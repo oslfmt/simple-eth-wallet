@@ -1,6 +1,6 @@
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Secp256k1, Message, SecretKey, PublicKey};
-use sha3::{Digest, Keccak256};
+use sha3::{Digest, Keccak256, Keccak512};
 
 pub struct Secp {
     pub secp256k1: Secp256k1<secp256k1::All>,
@@ -29,6 +29,12 @@ pub fn generate_eth_address(public_key: &[u8]) -> [u8; 20] {
 
 pub fn keccak256(input: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
+    hasher.update(input);
+    hasher.finalize().try_into().unwrap()
+}
+
+pub fn keccak512(input: &[u8]) -> [u8; 64] {
+    let mut hasher = Keccak512::new();
     hasher.update(input);
     hasher.finalize().try_into().unwrap()
 }
