@@ -13,43 +13,22 @@ use ethereum_tx_sign::RawTransaction;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
-use ed25519_dalek_bip32::{DerivationPath, ExtendedSecretKey, ChildIndex, PublicKey};
+use bip32::{XPrv, XPub, ChildNumber};
 
 use crate::utils::{read_user_input, wei_to_eth, xor};
 use crate::crypto::{Secp, keccak256, keccak512, generate_eth_address};
 
-// TODO: list
-// add nonce management
-// add HD wallet functionality
-
-// TODO: store seed more securely
-// 1. hash user password
-// 2. xor password hash the seed
-// 3. store result in database. Essentially, the seed is encrypted by xor with password hash
-// 4. When user logs back in, the hash is xor with the stored result, to get the original seed back
-
 const RINKEBY_CHAIN_ID: u8 = 4;
 
-#[derive(Decode, Encode, PartialEq, Debug)]
-struct UserData {
-    password_hash: [u8; 32],
-    // TODO: encrypt the secret key
-    secret_key: [u8; 32],
-    public_key: Vec<u8>,
-    // TODO: add nonce
-    // nonce: u64,
-}
-
 #[derive(Serialize, Deserialize)]
-struct UserDataTwo {
-    pad: Vec<u8>
+struct UserData {
+    // TODO: add nonce management
+    pad: Vec<u8>,
+    root_pub_key: [u8; 32]
 }
 
 fn main() {
     println!("{}", "Starting Rwallet2.0, an HD wallet...");
-
-    // open the database containing login and keypair info
-    let db = utils::open_db("db");
 
     if !Path::new("./userdata.txt").exists() {
         display_menu_one();
@@ -93,26 +72,23 @@ fn display_menu_two() {
 
 fn import_wallet() {
     // NOTE: importing wallet overwrites old wallet data. You can only have one wallet at any given time
-    // recover seed
     println!("Enter your mnemonic phrase to restore your wallet:\n");
     let phrase = read_user_input();
     let mnemonic = Mnemonic::from_phrase(&phrase, Language::English).unwrap();
     let seed = Seed::new(&mnemonic, "");
+    let (ext_prv_key, pub_key) = generate_default_keypair(seed.as_bytes());
 
     // create new password
     println!("{}", "Create Password: ");
     let password = read_user_input();
-    let pad = xor(seed.as_bytes(), &keccak256(password.as_bytes())).unwrap().to_vec();
 
-    let data = UserDataTwo { pad };
-    let data_bytes = serde_json::to_vec(&data).unwrap();
+    let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap().to_vec();
 
-    // write to file
-    let mut file = File::create("userdata.txt").unwrap();
-    file.write_all(&data_bytes);
-
-    // TODO: use seed to access wallet
-    // run_wallet_actions();
+    // TODO: to_bytes() returns SEC1-encoded, might not need first byte?
+    match store_user_data(pad, pub_key.to_bytes()[1..].try_into().unwrap()) {
+        Ok(()) => run_wallet_actions(ext_prv_key, pub_key.to_bytes()[1..].try_into().unwrap()),
+        Err(e) => println!("{}", e),
+    }
 }
 
 /// Handles user login
@@ -121,7 +97,7 @@ fn run_user_login() {
     let mut file = File::open("./userdata.txt").unwrap();
     let mut buf = String::new();
     file.read_to_string(&mut buf);
-    let d: UserDataTwo = serde_json::from_str(&buf).unwrap();
+    let d: UserData = serde_json::from_str(&buf).unwrap();
 
     // prompt user to enter password
     println!("{}", "Enter Password: ");
@@ -132,6 +108,14 @@ fn run_user_login() {
     // use seed to generate wallet accounts
     // the current problem is that if the password is wrong, there's no way to tell the user that.
     // the seed will still be derived, but it will be incorrect.
+    let (ext_prv_key, pub_key) = generate_default_keypair(&seed);
+    let pub_key_type: [u8; 32] = pub_key.to_bytes()[1..].try_into().unwrap();
+    if d.root_pub_key == pub_key_type {
+        // then the correct master key was derived, so allow access to wallet
+        run_wallet_actions(ext_prv_key, pub_key_type.to_vec());
+    } else {
+        println!("Incorrect password");
+    }
 }
 
 fn create_new_wallet() {
@@ -142,51 +126,62 @@ fn create_new_wallet() {
     // create a new mnemonic phrase
     let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
     let phrase = mnemonic.phrase();
-    println!("Here is your secret recovery phrase: {}\n", phrase);
+    println!("Here is your secret recovery phrase: {}", phrase);
     println!("It is used to derive all your accounts and private keys. Thus, memorize it and keep it hidden.");
-
     // generate seed (no BIP39 password for now)
     let seed = Seed::new(&mnemonic, "");
-    let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-    
-    // use seed to derive master private key
+
     // TODO: In the future, follow BIP-44 spec to generate 1 account by default. After that have option to add new accounts
-    // CHECK: this returns ed25519 public key? Not secp256k1??
-    let pub_key = generate_default_account(seed.as_bytes());
-    let address = generate_eth_address(&pub_key.to_bytes());
+    let (extended_prv_key, pub_key) = generate_default_keypair(seed.as_bytes());
 
-    println!("ETH Address: 0x{}", hex::encode(address));
+    // store pad and default account
+    let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
+    match store_user_data(pad, pub_key.to_bytes()[1..].try_into().unwrap()) {
+        Ok(()) => run_wallet_actions(extended_prv_key, pub_key.to_bytes()[1..].try_into().unwrap()),
+        Err(e) => println!("{}", e),
+    }
+}
 
-    let data = UserDataTwo { pad };
+fn store_user_data(pad: Vec<u8>, root_pub_key: [u8; 32]) -> Result<(), String> {
+    let data = UserData { pad, root_pub_key };
     let data_bytes = serde_json::to_vec(&data).unwrap();
-
-    // write to file
     let mut file = File::create("userdata.txt").unwrap();
-    file.write_all(&data_bytes);
-
-    // run_wallet_actions();
+    match file.write_all(&data_bytes) {
+        Ok(()) => Ok(()),
+        Err(e) => Err(format!("Error writing to file: {}", e)),
+    }
 }
 
 /// Generates the first account by default, when user first creates the wallet
-fn generate_default_account(seed_bytes: &[u8]) -> PublicKey {
-    let master_private_key = ExtendedSecretKey::from_seed(seed_bytes).unwrap();
-    // this is key: m/0'
-    let child_prv = master_private_key.derive_child(ChildIndex::Hardened(0)).unwrap();
+fn generate_default_keypair(seed_bytes: &[u8]) -> (XPrv, XPub) {
+    // derive master private key from seed
+    let master_prv_key = XPrv::new(seed_bytes).unwrap();
+    // derive basic child key (m/0') from master key as first account
+    let child_prv = master_prv_key.derive_child(ChildNumber::new(0, true).unwrap()).unwrap();
+    let pub_key = child_prv.public_key();
     // TODO: each time a user creates a new key, we can store this key in storage, so we don't have to rederive it everytime?
-    child_prv.public_key()
+    (child_prv, pub_key)
+}
+
+/// Creates a new account within the wallet using HD wallet functionality
+fn create_new_account(secret_key: &XPrv) -> XPrv {
+    // derive new account from secret_key
+    // m/0'/0'
+    secret_key.derive_child(ChildNumber::new(0, true).unwrap()).unwrap()
 }
 
 /// Handle actions like querying balance and sending transactions after user has logged in or signed up
-fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
+fn run_wallet_actions(secret_key: XPrv, public_key: Vec<u8>) {
     // not the biggest fan of this, maybe just store the address
     let mut address = String::from("0x");
-    address.push_str(&hex::encode(generate_eth_address(&public_key[1..])));
+    address.push_str(&hex::encode(generate_eth_address(&public_key)));
 
     println!("Your ETH address: {}", address);
 
     loop {
         println!("{}", "1) View account balance");
         println!("{}", "2) Send a transaction");
+        println!("{}", "3) Create another account");
         let option = read_user_input().parse::<u8>().unwrap();
 
         match option {
@@ -195,6 +190,11 @@ fn run_wallet_actions(secret_key: [u8; 32], public_key: Vec<u8>) {
             },
             2 => {
                 send_transaction(&secret_key);
+            },
+            3 => {
+                let new_prv_key = create_new_account(&secret_key);
+                let new_account = generate_eth_address(new_prv_key.public_key().to_bytes()[1..].try_into().unwrap());
+                println!("Account 2 address: 0x{}", hex::encode(new_account));
             }
             _ => println!("{}", "Invalid option"),
         }
@@ -226,7 +226,7 @@ fn query_balance(address: &str) {
     };
 }
 
-fn send_transaction(secret_key: &[u8]) {
+fn send_transaction(secret_key: &XPrv) {
     println!("Enter recipient address: ");
     let recipient = read_user_input();
     println!("Enter amount to send: ");
@@ -242,7 +242,7 @@ fn send_transaction(secret_key: &[u8]) {
         vec![]
     );
 
-    let rlp_bytes = tx.sign(secret_key, &RINKEBY_CHAIN_ID);
+    let rlp_bytes = tx.sign(&secret_key.to_bytes()[..], &RINKEBY_CHAIN_ID);
     let mut final_txn = String::from("0x");
     final_txn.push_str(&hex::encode(rlp_bytes));
 
@@ -257,38 +257,4 @@ fn send_transaction(secret_key: &[u8]) {
         .into_string().unwrap();
 
     println!("{}", resp);
-}
-
-/// DEPRECATED
-fn run_user_signup(db: DB) {
-    let (username, password) = utils::get_username_password();
-
-    // if username exists, cannot use. Otherwise, generate new key pair and create new user!
-    match db.get(&username) {
-        Ok(Some(_v)) => println!("Username already taken"),
-        Ok(None) => {
-            let secp = Secp::new();
-            let (secret_key, public_key) = secp.create_keypair();
-            let raw_key = public_key.serialize_uncompressed();
-            let address = generate_eth_address(&raw_key[1..]);
-            println!("Your ETH address: 0x{}", hex::encode(address));
-
-            // store in db
-            let data = UserData {
-                password_hash: keccak256(password.as_bytes()),
-                secret_key: secret_key.serialize_secret(),
-                public_key: raw_key.to_vec(),
-            };
-
-            let bytes = data.as_ssz_bytes();
-            match db.put(username, bytes) {
-                Ok(()) => (),
-                Err(e) => println!("Database error: {}", e),
-            };
-
-            // user can now use wallet
-            // run_wallet_actions(secret_key, raw_key);
-        }
-        Err(e) => println!("Database error: {}", e),
-    }
 }
