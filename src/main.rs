@@ -24,9 +24,23 @@ const RINKEBY_CHAIN_ID: u8 = 4;
 
 #[derive(Serialize, Deserialize)]
 struct UserData {
-    // TODO: add nonce management
     pad: Vec<u8>,
-    root_pub_key: Vec<u8>
+    /// the key used to verify logins
+    verification_key: Vec<u8>
+}
+
+// a tuple struct of accounts. The index of the account in the vector serves as the account number
+struct TempData {
+    /// The parent private key deriving all accounts
+    deriving_key: XPrv,
+    /// A vector of derived accounts
+    accounts: Vec<Account>,
+}
+
+struct Account {
+    nonce: u64,
+    prv_key: Vec<u8>,
+    address: String,
 }
 
 fn main() {
@@ -137,38 +151,62 @@ fn create_new_wallet() {
     // generate seed (no BIP39 password for now)
     let seed = Seed::new(&mnemonic, "");
 
-    // generate default keys according to bip-44
-    let (xprv, xpub) = generate_default_keypair(seed.as_bytes());
-    println!("Private key: {:?}\nPublic key: {:?}", xprv.to_string(Prefix::XPRV), xpub.to_string(Prefix::XPUB));
+    // parent_xprv is stored in temp data in order to derive further accounts
+    // parent_xpub is stored in permanent user data in order to verify password for future logins
+    let (parent_derive_xprv, parent_derive_xpub) = create_parent_deriving_keys(seed.as_bytes());
 
-    // Convert default acct pub_key to Ethereum address by taking hash of UNCOMPRESSED point
-    let pub_key: [u8; 65] = xpub.public_key().to_encoded_point(false).as_bytes().try_into().unwrap();
-    // only hash last 64B of pub_key because we want to leave out the prefix 0x04
-    let addr = generate_eth_address(&pub_key[1..]);
-    println!("ETHEREUM ADDRESS: 0x{}", hex::encode(addr));
+    // create the first account with index 0
+    let (xprv, address) = create_new_account(&parent_derive_xprv, 0);
+    println!("deriving prv {:?}", xprv.to_string(Prefix::XPRV));
+
+    // create temp storage
+    let accounts = create_temp_data(
+        xprv.to_bytes().to_vec(),
+        address.clone(),
+        parent_derive_xprv,
+    );
 
     // store pad and default (uncompressed) public key
     let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-    match store_user_data(pad, &pub_key) {
-        Ok(()) => run_wallet_actions(xprv, &pub_key),
+    match store_user_data(pad, parent_derive_xpub) {
+        Ok(()) => run_wallet_actions(accounts),
         Err(e) => println!("{}", e),
     }
 }
 
-/// Generates the first account by default, when user first creates the wallet
-fn generate_default_keypair(seed: &[u8]) -> (XPrv, XPub) {
-    let default_acct_path = "m/44'/60'/0'/0/0";
+/// Generate the parent chain key that is used to derive all subsequently created keys
+fn create_parent_deriving_keys(seed: &[u8]) -> (XPrv, XPub) {
+    let default_acct_path = "m/44'/60'/0'/0";
     let child_xprv = XPrv::derive_from_path(
         seed,
         &DerivationPath::from_str(default_acct_path).unwrap()
     ).unwrap();
-    // TODO: each time a user creates a new key, we can store this key in storage, so we don't have to rederive it everytime?
     let child_xpub = child_xprv.public_key();
     (child_xprv, child_xpub)
 }
 
-fn store_user_data(pad: Vec<u8>, root_pub_key: &[u8]) -> Result<(), String> {
-    let data = UserData { pad, root_pub_key: root_pub_key.to_vec() };
+/// Creates a new address within the wallet using HD wallet functionality
+/// deriving_key - the parent key with path m/44'/60'/0'/0, used to derive all child accounts
+/// index - the index of the child account
+///
+/// The returned key has path: m/44'/60'/0'/0/x, where x = 0,1,2,3...
+fn create_new_account(deriving_key: &XPrv, index: u32) -> (XPrv, String) {
+    let child_xprv = deriving_key.derive_child(ChildNumber::new(index, false).unwrap()).unwrap();
+    let child_xpub = child_xprv.public_key();
+
+    // Convert default acct pub_key to Ethereum address by taking hash of UNCOMPRESSED point
+    let pub_key: [u8; 65] = child_xpub.public_key().to_encoded_point(false).as_bytes().try_into().unwrap();
+    // only hash last 64B of pub_key because we want to leave out the prefix 0x04
+    let addr_bytes = generate_eth_address(&pub_key[1..]);
+    let address = String::from("0x") + &hex::encode(addr_bytes);
+    println!("ETHEREUM ADDRESS: {}", address);
+
+    (child_xprv, address)
+}
+
+/// Stores the key user data that is necessary for logging in again
+fn store_user_data(pad: Vec<u8>, verification_key: XPub) -> Result<(), String> {
+    let data = UserData { pad, verification_key: verification_key.to_bytes().to_vec() };
     let data_bytes = serde_json::to_vec(&data).unwrap();
     let mut file = File::create("userdata.txt").unwrap();
     match file.write_all(&data_bytes) {
@@ -177,17 +215,19 @@ fn store_user_data(pad: Vec<u8>, root_pub_key: &[u8]) -> Result<(), String> {
     }
 }
 
-/// Creates a new address within the wallet using HD wallet functionality
-fn create_new_account(secret_key: &XPrv) -> XPrv {
-    // derive new account from secret_key
-    // m/44'/60'/0'/0/x (where x = 1,2,3...)
-    secret_key.derive_child(ChildNumber::new(0, true).unwrap()).unwrap()
+/// Creates TempData struct and populates it with the default account
+fn create_temp_data(prv_key: Vec<u8>, address: String, deriving_key: XPrv) -> TempData {
+    let default_account = Account { nonce: 0, prv_key, address };
+    TempData {
+        deriving_key,
+        accounts: vec![default_account]
+    }
 }
 
 /// Handle actions like querying balance and sending transactions after user has logged in or signed up
-fn run_wallet_actions(secret_key: XPrv, public_key: &[u8]) {
-    let mut address = String::from("0x");
-    address.push_str(&hex::encode(generate_eth_address(&public_key[1..])));
+fn run_wallet_actions(temp_data: TempData) {
+    let address = &temp_data.accounts[0].address;
+    let deriving_key = &temp_data.deriving_key;
 
     loop {
         println!("{}", "1) View account balance");
@@ -200,12 +240,12 @@ fn run_wallet_actions(secret_key: XPrv, public_key: &[u8]) {
                 query_balance(&address);
             },
             2 => {
-                send_transaction(&secret_key);
+                // send_transaction(&secret_key);
             },
             3 => {
-                let new_prv_key = create_new_account(&secret_key);
-                let new_account = generate_eth_address(new_prv_key.public_key().to_bytes()[1..].try_into().unwrap());
-                println!("Account 2 address: 0x{}", hex::encode(new_account));
+                // create new account
+                let (xprv, new_address) = create_new_account(deriving_key, temp_data.accounts.len() as u32);
+                println!("New Address {}", new_address);
             }
             _ => println!("{}", "Invalid option"),
         }
