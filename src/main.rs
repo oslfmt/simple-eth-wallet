@@ -1,5 +1,6 @@
 mod crypto;
 mod utils;
+mod storage;
 
 use std::path::Path;
 use std::fs::File;
@@ -19,29 +20,9 @@ use bip32::secp256k1::elliptic_curve::sec1::ToEncodedPoint;
 
 use crate::utils::{read_user_input, wei_to_eth, xor};
 use crate::crypto::{Secp, keccak256, keccak512, generate_eth_address};
+use crate::storage::{TempData, Account, UserData};
 
 const RINKEBY_CHAIN_ID: u8 = 4;
-
-#[derive(Serialize, Deserialize)]
-struct UserData {
-    pad: Vec<u8>,
-    /// the key used to verify logins
-    verification_key: Vec<u8>
-}
-
-// a tuple struct of accounts. The index of the account in the vector serves as the account number
-struct TempData {
-    /// The parent private key deriving all accounts
-    deriving_key: XPrv,
-    /// A vector of derived accounts
-    accounts: Vec<Account>,
-}
-
-struct Account {
-    nonce: u64,
-    prv_key: Vec<u8>,
-    address: String,
-}
 
 fn main() {
     println!("{}", "Starting Rwallet2.0, an HD wallet...");
@@ -140,7 +121,6 @@ fn run_user_login() {
 }*/
 
 fn create_new_wallet() {
-    // create new password used for securing local app
     println!("{}", "Enter New Password: ");
     let password = read_user_input();
 
@@ -155,98 +135,74 @@ fn create_new_wallet() {
     // parent_xpub is stored in permanent user data in order to verify password for future logins
     let (parent_derive_xprv, parent_derive_xpub) = create_parent_deriving_keys(seed.as_bytes());
 
-    // create the first account with index 0
-    let (xprv, address) = create_new_account(&parent_derive_xprv, 0);
-    println!("deriving prv {:?}", xprv.to_string(Prefix::XPRV));
-
-    // create temp storage
-    let accounts = create_temp_data(
-        xprv.to_bytes().to_vec(),
-        address.clone(),
-        parent_derive_xprv,
-    );
+    let mut temp_data = TempData::new(parent_derive_xprv);
+    temp_data.create_account(0);
 
     // store pad and default (uncompressed) public key
     let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-    match store_user_data(pad, parent_derive_xpub) {
-        Ok(()) => run_wallet_actions(accounts),
+    let user_data = UserData::new(pad, parent_derive_xpub);
+    match user_data.store() {
+        Ok(()) => run_wallet(&mut temp_data),
         Err(e) => println!("{}", e),
     }
 }
 
-/// Generate the parent chain key that is used to derive all subsequently created keys
-fn create_parent_deriving_keys(seed: &[u8]) -> (XPrv, XPub) {
-    let default_acct_path = "m/44'/60'/0'/0";
-    let child_xprv = XPrv::derive_from_path(
-        seed,
-        &DerivationPath::from_str(default_acct_path).unwrap()
-    ).unwrap();
-    let child_xpub = child_xprv.public_key();
-    (child_xprv, child_xpub)
-}
+fn run_wallet(temp_data: &mut TempData) {
+    let mut account = temp_data.default_account();
 
-/// Creates a new address within the wallet using HD wallet functionality
-/// deriving_key - the parent key with path m/44'/60'/0'/0, used to derive all child accounts
-/// index - the index of the child account
-///
-/// The returned key has path: m/44'/60'/0'/0/x, where x = 0,1,2,3...
-fn create_new_account(deriving_key: &XPrv, index: u32) -> (XPrv, String) {
-    let child_xprv = deriving_key.derive_child(ChildNumber::new(index, false).unwrap()).unwrap();
-    let child_xpub = child_xprv.public_key();
-
-    // Convert default acct pub_key to Ethereum address by taking hash of UNCOMPRESSED point
-    let pub_key: [u8; 65] = child_xpub.public_key().to_encoded_point(false).as_bytes().try_into().unwrap();
-    // only hash last 64B of pub_key because we want to leave out the prefix 0x04
-    let addr_bytes = generate_eth_address(&pub_key[1..]);
-    let address = String::from("0x") + &hex::encode(addr_bytes);
-    println!("ETHEREUM ADDRESS: {}", address);
-
-    (child_xprv, address)
-}
-
-/// Stores the key user data that is necessary for logging in again
-fn store_user_data(pad: Vec<u8>, verification_key: XPub) -> Result<(), String> {
-    let data = UserData { pad, verification_key: verification_key.to_bytes().to_vec() };
-    let data_bytes = serde_json::to_vec(&data).unwrap();
-    let mut file = File::create("userdata.txt").unwrap();
-    match file.write_all(&data_bytes) {
-        Ok(()) => Ok(()),
-        Err(e) => Err(format!("Error writing to file: {}", e)),
+    loop {
+        let num = run_account_actions(&account);
+        if num == 3 {
+            // create new account
+            // switch to account
+            account = temp_data.create_account(temp_data.accounts.len() as u32);
+            // run wallet actions with context
+        } else if num == 4 {
+            // display list of accounts
+            let selected = print_accounts(&temp_data.accounts);
+            // switch to account
+            account = selected;
+            // run wallet actions with context
+        }
     }
 }
 
-/// Creates TempData struct and populates it with the default account
-fn create_temp_data(prv_key: Vec<u8>, address: String, deriving_key: XPrv) -> TempData {
-    let default_account = Account { nonce: 0, prv_key, address };
-    TempData {
-        deriving_key,
-        accounts: vec![default_account]
+// prints the accounts, asks for user selection, then indexes into accounts array to select account
+// and clone it, then return it
+fn print_accounts(accounts: &[Account]) -> Account {
+    for (index, acc) in accounts.iter().enumerate() {
+        println!("{}) {}", index, acc.address);
     }
+    let option = read_user_input().parse::<usize>().unwrap();
+    accounts[option].clone()
 }
 
-/// Handle actions like querying balance and sending transactions after user has logged in or signed up
-fn run_wallet_actions(temp_data: TempData) {
-    let address = &temp_data.accounts[0].address;
-    let deriving_key = &temp_data.deriving_key;
+fn run_account_actions(account: &Account) -> u8 {
+    let address = &account.address;
+    let signing_key = &account.prv_key;
+
+    println!("CURRENT ACCOUNT ADDRESS: {}", address);
 
     loop {
         println!("{}", "1) View account balance");
         println!("{}", "2) Send a transaction");
         println!("{}", "3) Create another account");
+        println!("{}", "4) Switch account");
         let option = read_user_input().parse::<u8>().unwrap();
 
         match option {
             1 => {
-                query_balance(&address);
+                query_balance(address);
             },
             2 => {
                 // send_transaction(&secret_key);
             },
             3 => {
-                // create new account
-                let (xprv, new_address) = create_new_account(deriving_key, temp_data.accounts.len() as u32);
-                println!("New Address {}", new_address);
-            }
+                return 3;
+            },
+            4 => {
+                return 4;
+            },
             _ => println!("{}", "Invalid option"),
         }
     }
@@ -308,6 +264,17 @@ fn send_transaction(secret_key: &XPrv) {
         .into_string().unwrap();
 
     println!("{}", resp);
+}
+
+/// Generate the parent chain key that is used to derive all subsequently created keys
+fn create_parent_deriving_keys(seed: &[u8]) -> (XPrv, XPub) {
+    let default_acct_path = "m/44'/60'/0'/0";
+    let child_xprv = XPrv::derive_from_path(
+        seed,
+        &DerivationPath::from_str(default_acct_path).unwrap()
+    ).unwrap();
+    let child_xpub = child_xprv.public_key();
+    (child_xprv, child_xpub)
 }
 
 #[cfg(test)]
