@@ -5,21 +5,14 @@ mod storage;
 use std::path::Path;
 use std::fs::File;
 use std::io::prelude::*;
-use std::str::FromStr;
 
-use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
 use hex;
-use rocksdb::{DB};
 use ethereum_tx_sign::RawTransaction;
-use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
-use bip32::{XPrv, XPub, ChildNumber, DerivationPath, Prefix};
-use bip32::secp256k1::elliptic_curve::sec1::ToEncodedPoint;
 
 use crate::utils::{read_user_input, wei_to_eth, xor};
-use crate::crypto::{Secp, keccak256, keccak512, generate_eth_address};
+use crate::crypto::{keccak512};
 use crate::storage::{TempData, Account, UserData};
 
 const RINKEBY_CHAIN_ID: u8 = 4;
@@ -103,20 +96,12 @@ fn run_user_login() {
     // prompt user to enter password
     println!("{}", "Enter Password: ");
     let password = read_user_input();
-    let password_hash = keccak512(password.as_bytes());
-    let seed = xor(&password_hash, &d.pad).unwrap();
 
-    let master_prv_key = generate_master_prv_key(seed.as_bytes());
-    // use seed to generate wallet accounts
-    // the current problem is that if the password is wrong, there's no way to tell the user that.
-    // the seed will still be derived, but it will be incorrect.
-    let (ext_prv_key, pub_key) = generate_default_keypair(master_prv_key);
-    let pub_key_type: [u8; 32] = pub_key.to_bytes()[1..].try_into().unwrap();
-    if d.root_pub_key == pub_key_type {
-        // then the correct master key was derived, so allow access to wallet
-        run_wallet_actions(ext_prv_key, pub_key_type.to_vec());
-    } else {
-        println!("Incorrect password");
+    // if password is correct, this will be the correct seed
+    match d.verify_password(password) {
+        // TODO: need to somehow reinstantiate the temp data
+        true => println!("todo"), //run_wallet(),
+        false => println!("Incorrect password"),
     }
 }
 
@@ -132,15 +117,16 @@ fn create_new_wallet() {
     let seed = Seed::new(&mnemonic, "");
 
     // parent_xprv is stored in temp data in order to derive further accounts
-    // parent_xpub is stored in permanent user data in order to verify password for future logins
-    let (parent_derive_xprv, parent_derive_xpub) = create_parent_deriving_keys(seed.as_bytes());
+    // verif_key is stored in permanent user data in order to verify password for future logins
+    let (parent_derive_xprv, _) = UserData::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
+    let (_, verification_key) = UserData::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
 
     let mut temp_data = TempData::new(parent_derive_xprv);
     temp_data.create_account(0);
 
     // store pad and default (uncompressed) public key
     let pad = xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-    let user_data = UserData::new(pad, parent_derive_xpub);
+    let user_data = UserData::new(pad, verification_key);
     match user_data.store() {
         Ok(()) => run_wallet(&mut temp_data),
         Err(e) => println!("{}", e),
@@ -253,17 +239,6 @@ fn send_transaction(secret_key: &[u8]) {
         .into_string().unwrap();
 
     println!("{}", resp);
-}
-
-/// Generate the parent chain key that is used to derive all subsequently created keys
-fn create_parent_deriving_keys(seed: &[u8]) -> (XPrv, XPub) {
-    let default_acct_path = "m/44'/60'/0'/0";
-    let child_xprv = XPrv::derive_from_path(
-        seed,
-        &DerivationPath::from_str(default_acct_path).unwrap()
-    ).unwrap();
-    let child_xpub = child_xprv.public_key();
-    (child_xprv, child_xpub)
 }
 
 #[cfg(test)]

@@ -1,17 +1,62 @@
 use std::fs::File;
 use std::io::prelude::*;
+use std::str::FromStr;
 
 use bip32::{XPrv, XPub, ChildNumber, DerivationPath, Prefix};
 use bip32::secp256k1::elliptic_curve::sec1::ToEncodedPoint;
 use serde::{Serialize, Deserialize};
 
-use crate::crypto::generate_eth_address;
+use crate::crypto::{generate_eth_address, keccak512};
+use crate::utils;
 
 #[derive(Serialize, Deserialize)]
+// A more appropriate name is WalletData
+// TODO: I think a better structure is having WalletData have a TempData struct in it
 pub struct UserData {
+    /// Encoded wallet seed
     pub pad: Vec<u8>,
-    /// the key used to verify logins
-    verification_key: Vec<u8>
+    /// The key used to verify logins
+    pub verification_key: Vec<u8>
+}
+
+impl UserData {
+    /// Creates new UserData struct with given pad and verification_key
+    pub fn new(pad: Vec<u8>, verification_key: XPub) -> Self {
+        UserData { pad, verification_key: verification_key.to_bytes().to_vec() }
+    }
+
+    /// Stores the key user data that is necessary for logging in again
+    pub fn store(&self) -> Result<(), String> {
+        let mut file = File::create("userdata.txt").unwrap();
+        let data_bytes = serde_json::to_vec(self).unwrap();
+
+        match file.write_all(&data_bytes) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(format!("Error writing to file: {}", e)),
+        }
+    }
+
+    pub fn verify_password(&self, password: String) -> bool {
+        let password_hash = keccak512(password.as_bytes());
+        let seed = utils::xor(&password_hash, &self.pad).unwrap();
+        let (_, xpub) = UserData::create_keys_from_path(&seed, "m/44'/60'/0'");
+
+        if xpub.to_bytes().to_vec() == self.verification_key {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Generate the key pair from a given path
+    pub fn create_keys_from_path(seed: &[u8], path: &str) -> (XPrv, XPub) {
+        let child_xprv = XPrv::derive_from_path(
+            seed,
+            &DerivationPath::from_str(path).unwrap()
+        ).unwrap();
+        let child_xpub = child_xprv.public_key();
+        (child_xprv, child_xpub)
+    }
 }
 
 // The index of the account in the vector serves as the account number
@@ -20,13 +65,6 @@ pub struct TempData {
     pub deriving_key: XPrv,
     /// A vector of derived accounts
     pub accounts: Vec<Account>,
-}
-
-#[derive(Clone)]
-pub struct Account {
-    pub nonce: u64,
-    prv_key: Vec<u8>,
-    pub address: String,
 }
 
 impl TempData {
@@ -64,6 +102,13 @@ impl TempData {
     }
 }
 
+#[derive(Clone)]
+pub struct Account {
+    pub nonce: u64,
+    prv_key: Vec<u8>,
+    pub address: String,
+}
+
 impl Account {
     /// Creates a new address within the wallet using HD wallet functionality
     /// deriving_key - the parent key with path m/44'/60'/0'/0, used to derive all child accounts
@@ -93,19 +138,3 @@ impl Account {
     }
 }
 
-impl UserData {
-    pub fn new(pad: Vec<u8>, verification_key: XPub) -> Self {
-        UserData { pad, verification_key: verification_key.to_bytes().to_vec() }
-    }
-
-    /// Stores the key user data that is necessary for logging in again
-    pub fn store(&self) -> Result<(), String> {
-        let mut file = File::create("userdata.txt").unwrap();
-        let data_bytes = serde_json::to_vec(self).unwrap();
-
-        match file.write_all(&data_bytes) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(format!("Error writing to file: {}", e)),
-        }
-    }
-}
