@@ -57,7 +57,7 @@ fn display_menu_two() {
 
     match option {
         1 => {
-            //run_user_login();
+            run_user_login();
         },
         2 => {
             // TODO: check that it should overwrite current file contents
@@ -90,7 +90,7 @@ fn display_menu_two() {
         Ok(()) => run_wallet_actions(ext_prv_key, pub_key.to_bytes()[1..].try_into().unwrap()),
         Err(e) => println!("{}", e),
     }
-}
+}*/
 
 /// Handles user login
 fn run_user_login() {
@@ -118,7 +118,7 @@ fn run_user_login() {
     } else {
         println!("Incorrect password");
     }
-}*/
+}
 
 fn create_new_wallet() {
     println!("{}", "Enter New Password: ");
@@ -155,31 +155,20 @@ fn run_wallet(temp_data: &mut TempData) {
         if num == 3 {
             // create new account
             // switch to account
-            account = temp_data.create_account(temp_data.accounts.len() as u32);
-            // run wallet actions with context
+            account = temp_data.create_account(temp_data.accounts.len());
         } else if num == 4 {
             // display list of accounts
-            let selected = print_accounts(&temp_data.accounts);
+            temp_data.print_accounts();
+            let option = read_user_input().parse::<usize>().unwrap();
             // switch to account
-            account = selected;
-            // run wallet actions with context
+            account = temp_data.get_account(option);
         }
     }
 }
 
-// prints the accounts, asks for user selection, then indexes into accounts array to select account
-// and clone it, then return it
-fn print_accounts(accounts: &[Account]) -> Account {
-    for (index, acc) in accounts.iter().enumerate() {
-        println!("{}) {}", index, acc.address);
-    }
-    let option = read_user_input().parse::<usize>().unwrap();
-    accounts[option].clone()
-}
-
 fn run_account_actions(account: &Account) -> u8 {
     let address = &account.address;
-    let signing_key = &account.prv_key;
+    let signing_key = account.private_key();
 
     println!("CURRENT ACCOUNT ADDRESS: {}", address);
 
@@ -195,7 +184,7 @@ fn run_account_actions(account: &Account) -> u8 {
                 query_balance(address);
             },
             2 => {
-                // send_transaction(&secret_key);
+                send_transaction(signing_key);
             },
             3 => {
                 return 3;
@@ -233,7 +222,7 @@ fn query_balance(address: &str) {
     };
 }
 
-fn send_transaction(secret_key: &XPrv) {
+fn send_transaction(secret_key: &[u8]) {
     println!("Enter recipient address: ");
     let recipient = read_user_input();
     println!("Enter amount to send: ");
@@ -249,7 +238,7 @@ fn send_transaction(secret_key: &XPrv) {
         vec![]
     );
 
-    let rlp_bytes = tx.sign(&secret_key.to_bytes()[..], &RINKEBY_CHAIN_ID);
+    let rlp_bytes = tx.sign(secret_key, &RINKEBY_CHAIN_ID);
     let mut final_txn = String::from("0x");
     final_txn.push_str(&hex::encode(rlp_bytes));
 

@@ -9,7 +9,7 @@ use crate::crypto::generate_eth_address;
 
 #[derive(Serialize, Deserialize)]
 pub struct UserData {
-    pad: Vec<u8>,
+    pub pad: Vec<u8>,
     /// the key used to verify logins
     verification_key: Vec<u8>
 }
@@ -25,7 +25,7 @@ pub struct TempData {
 #[derive(Clone)]
 pub struct Account {
     pub nonce: u64,
-    pub prv_key: Vec<u8>,
+    prv_key: Vec<u8>,
     pub address: String,
 }
 
@@ -41,7 +41,7 @@ impl TempData {
     /// Creates a new account using the deriving key stored in TempData, with specified index
     /// and adds the created account to the TempData vector
     /// Returns a clone of the created account
-    pub fn create_account(&mut self, index: u32) -> Account {
+    pub fn create_account(&mut self, index: usize) -> Account {
         let account = Account::new(&self.deriving_key, index);
         self.accounts.push(account.clone());
         account
@@ -51,6 +51,17 @@ impl TempData {
     pub fn default_account(&self) -> Account {
         self.accounts[0].clone()
     }
+
+    /// Prints all the accounts associated with user
+    pub fn print_accounts(&self) {
+        for (index, acc) in self.accounts.iter().enumerate() {
+            println!("{}) {}", index, acc.address);
+        }
+    }
+
+    pub fn get_account(&self, index: usize) -> Account {
+        self.accounts[index].clone()
+    }
 }
 
 impl Account {
@@ -59,8 +70,8 @@ impl Account {
     /// index - the index of the child account
     ///
     /// The returned key has path: m/44'/60'/0'/0/x, where x = 0,1,2,3...
-    pub fn new(deriving_key: &XPrv, index: u32) -> Self {
-        let child_xprv = deriving_key.derive_child(ChildNumber::new(index, false).unwrap()).unwrap();
+    pub fn new(deriving_key: &XPrv, index: usize) -> Self {
+        let child_xprv = deriving_key.derive_child(ChildNumber::new(index as u32, false).unwrap()).unwrap();
         let child_xpub = child_xprv.public_key();
 
         // Convert default acct pub_key to Ethereum address by taking hash of UNCOMPRESSED point
@@ -74,6 +85,11 @@ impl Account {
             prv_key: child_xprv.to_bytes().to_vec(),
             address,
         }
+    }
+
+    /// Returns a reference to the private key associated with the account
+    pub fn private_key(&self) -> &[u8] {
+        &self.prv_key
     }
 }
 
