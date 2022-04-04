@@ -16,6 +16,8 @@ use crate::crypto::{keccak512};
 use crate::storage::{TempData, Account, UserData};
 
 const RINKEBY_CHAIN_ID: u8 = 4;
+// ATOM is coin 118
+const COSMOS_PATH: &str = "m/44'/118'/0'/0/0";
 
 fn main() {
     println!("{}", "Starting Rwallet2.0, an HD wallet...");
