@@ -1,28 +1,49 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
+use std::cell::RefCell;
 
-use bip32::{XPrv, XPub, ChildNumber, DerivationPath};
+use bip39::{Mnemonic, MnemonicType, Language, Seed};
+use bip32::{XPrv, XPub, ChildNumber, DerivationPath, PrivateKeyBytes};
 use bip32::secp256k1::elliptic_curve::sec1::ToEncodedPoint;
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
+use hex;
+use ethereum_tx_sign::RawTransaction;
 
 use crate::crypto::{generate_eth_address, keccak512};
 use crate::utils;
 
+const RINKEBY_CHAIN_ID: u8 = 4;
+// ATOM is coin 118
+// const COSMOS_PATH: &str = "m/44'/118'/0'/0/0";
+
 #[derive(Serialize, Deserialize)]
-// A more appropriate name is WalletData
-// TODO: I think a better structure is having WalletData have a TempData struct in it
-pub struct UserData {
+pub struct Wallet {
     /// Encoded wallet seed
     pub pad: Vec<u8>,
-    /// The key used to verify logins
-    pub verification_key: Vec<u8>
+    /// The public key used to verify logins
+    pub verification_key: Vec<u8>,
+    // TODO: will need to encode all prv_keys. This opens up attack surface
+    pub accounts: Accounts,
 }
 
-impl UserData {
-    /// Creates new UserData struct with given pad and verification_key
-    pub fn new(pad: Vec<u8>, verification_key: XPub) -> Self {
-        UserData { pad, verification_key: verification_key.to_bytes().to_vec() }
+impl Wallet {
+    pub fn new(password: String) -> Wallet {
+        let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
+        let phrase = mnemonic.phrase();
+        println!("Here is your secret recovery phrase: {}", phrase);
+        let seed = Seed::new(&mnemonic, "");
+
+        let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
+        let (_, verification_key) = Wallet::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
+        let (parent_derive_xprv, _) = Wallet::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
+
+        Wallet {
+            pad,
+            verification_key: verification_key.to_bytes().to_vec(),
+            accounts: Accounts::new(parent_derive_xprv.to_bytes()),
+        }
     }
 
     /// Stores the key user data that is necessary for logging in again
@@ -39,12 +60,31 @@ impl UserData {
     pub fn verify_password(&self, password: String) -> bool {
         let password_hash = keccak512(password.as_bytes());
         let seed = utils::xor(&password_hash, &self.pad).unwrap();
-        let (_, xpub) = UserData::create_keys_from_path(&seed, "m/44'/60'/0'");
+        let (_, xpub) = Wallet::create_keys_from_path(&seed, "m/44'/60'/0'");
 
         if xpub.to_bytes().to_vec() == self.verification_key {
             true
         } else {
             false
+        }
+    }
+
+    pub fn run(&self) {
+        let mut account = self.accounts.default_account();
+
+        loop {
+            let num = account.run();
+            if num == 3 {
+                // create new account
+                // switch to account
+                account = temp_data.create_account(temp_data.accounts.len());
+            } else if num == 4 {
+                // display list of accounts
+                temp_data.print_accounts();
+                let option = utils::read_user_input().parse::<usize>().unwrap();
+                // switch to account
+                account = temp_data.get_account(option);
+            }
         }
     }
 
@@ -60,19 +100,21 @@ impl UserData {
 }
 
 // The index of the account in the vector serves as the account number
-pub struct TempData {
+#[derive(Serialize, Deserialize)]
+pub struct Accounts {
     /// The parent private key deriving all accounts
-    pub deriving_key: XPrv,
+    pub deriving_key: Vec<u8>,
     /// A vector of derived accounts
     pub accounts: Vec<Account>,
 }
 
-impl TempData {
+impl Accounts {
     /// Instantiates TempData struct with the deriving key, which will be used to derive all child accounts
-    pub fn new(deriving_key: XPrv) -> Self {
-        TempData {
+    pub fn new(deriving_key: PrivateKeyBytes) -> Self {
+        // Can make it create the first account by default
+        Accounts {
             deriving_key,
-            accounts: vec![]
+            accounts: vec![Account::new(&deriving_key, 0)]
         }
     }
 
@@ -102,7 +144,7 @@ impl TempData {
     }
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub nonce: u64,
     prv_key: Vec<u8>,
@@ -135,6 +177,95 @@ impl Account {
     /// Returns a reference to the private key associated with the account
     pub fn private_key(&self) -> &[u8] {
         &self.prv_key
+    }
+
+    pub fn run(&self) -> u8 {
+        let address = &account.address;
+        let signing_key = account.private_key();
+
+        println!("CURRENT ACCOUNT ADDRESS: {}", address);
+
+        loop {
+            println!("{}", "1) View account balance");
+            println!("{}", "2) Send a transaction");
+            println!("{}", "3) Create another account");
+            println!("{}", "4) Switch account");
+            let option = utils::read_user_input().parse::<u8>().unwrap();
+
+            match option {
+                1 => {
+                    self.query_balance(address);
+                },
+                2 => {
+                    self.send_transaction(signing_key);
+                },
+                3 => {
+                    return 3;
+                },
+                4 => {
+                    return 4;
+                },
+                _ => println!("{}", "Invalid option"),
+            }
+        }
+    }
+
+    fn query_balance(address: &str) {
+        let resp: Value = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+            .set("Content-Type", "application/json")
+            .send_json(ureq::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_getBalance",
+                        "params": [address, "latest"]
+                    })).unwrap()
+            .into_json().unwrap();
+
+        match resp["result"].as_str() {
+            Some(s) => {
+                match s.strip_prefix("0x") {
+                    Some(v) => {
+                        let balance = u128::from_str_radix(v, 16).unwrap();
+                        println!("Balance: {} ETH", utils::wei_to_eth(balance));
+                    },
+                    None => println!("String doesn't start with 0x"),
+                }
+            },
+            None => println!("Value is not a string"),
+        };
+    }
+
+    fn send_transaction(secret_key: &[u8]) {
+        println!("Enter recipient address: ");
+        let recipient = utils::read_user_input();
+        println!("Enter amount to send: ");
+        let amount: u128 = utils::read_user_input().parse::<u128>().unwrap();
+
+        // TODO: add gas price and limit selection (need to be high enough to be mined)
+        let tx = RawTransaction::new(
+            1,
+            hex::decode(recipient).unwrap().try_into().unwrap(),
+            amount,
+            2000000000,
+            1000000,
+            vec![]
+        );
+
+        let rlp_bytes = tx.sign(secret_key, &RINKEBY_CHAIN_ID);
+        let mut final_txn = String::from("0x");
+        final_txn.push_str(&hex::encode(rlp_bytes));
+
+        let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+            .set("Content-Type", "application/json")
+            .send_json(ureq::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_sendRawTransaction",
+                        "params": [final_txn]
+                    })).unwrap()
+            .into_string().unwrap();
+
+        println!("{}", resp);
     }
 }
 
