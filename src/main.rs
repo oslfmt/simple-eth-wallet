@@ -17,7 +17,7 @@ use crate::storage::{TempData, Account, UserData};
 
 const RINKEBY_CHAIN_ID: u8 = 4;
 // ATOM is coin 118
-const COSMOS_PATH: &str = "m/44'/118'/0'/0/0";
+// const COSMOS_PATH: &str = "m/44'/118'/0'/0/0";
 
 fn main() {
     println!("{}", "Starting Rwallet2.0, an HD wallet...");
@@ -92,7 +92,7 @@ fn run_user_login() {
     // load in data file
     let mut file = File::open("./userdata.txt").unwrap();
     let mut buf = String::new();
-    file.read_to_string(&mut buf);
+    file.read_to_string(&mut buf).unwrap();
     let d: UserData = serde_json::from_str(&buf).unwrap();
 
     // prompt user to enter password
@@ -246,7 +246,7 @@ fn send_transaction(secret_key: &[u8]) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use bip32::{ExtendedKey, Prefix};
+    use bip32::{ExtendedKey, Prefix, XPrv};
 
     fn base58_encode(data: ExtendedKey) -> String {
         let mut buffer = [0u8; 112];

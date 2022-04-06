@@ -15,15 +15,6 @@ pub fn wei_to_eth(amount: u128) -> String {
     (amount as f64 / 10_f64.powf(18 as f64)).to_string()
 }
 
-pub fn get_username_password() -> (String, String) {
-    println!("{}", "Enter Username: ");
-    let username = read_user_input();
-    println!("{}", "Enter Password: ");
-    let password = read_user_input();
-
-    (username, password)
-}
-
 /// Returns the XOR of two byte arrays. The byte arrays must be the same length
 pub fn xor(a: &[u8], b: &[u8]) -> Result<Vec<u8>, String> {
     if a.len() == b.len() {

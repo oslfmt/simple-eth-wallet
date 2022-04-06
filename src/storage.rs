@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
 
-use bip32::{XPrv, XPub, ChildNumber, DerivationPath, Prefix};
+use bip32::{XPrv, XPub, ChildNumber, DerivationPath};
 use bip32::secp256k1::elliptic_curve::sec1::ToEncodedPoint;
 use serde::{Serialize, Deserialize};
 
