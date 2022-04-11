@@ -54,10 +54,18 @@ fn display_menu_two() {
                 println!("{}", "Enter Password: ");
                 let password = read_user_input();
 
+<<<<<<< HEAD
                 match stored_wallet.verify_password(password) {
                     true => {
                         stored_wallet.run();
                         return
+=======
+                match d.verify_password(password) {
+                    true => {
+                        // TODO: reinstantiate accounts using vector of nonces and paths
+                        // derive the first default account using the path
+                        d.accounts[0]
+>>>>>>> d
                     },
                     false => println!("Incorrect password"),
                 };
