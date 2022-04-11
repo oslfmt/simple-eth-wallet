@@ -24,11 +24,17 @@ pub struct Wallet {
     pub pad: Vec<u8>,
     /// The public key used to verify logins
     pub verification_key: Vec<u8>,
-    // TODO: will need to encode all prv_keys. This opens up attack surface
-    pub accounts: Accounts,
+    pub accounts: Vec<AccountData,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AccountData {
+    pub nonce: u32,
+    pub path: String,
 }
 
 impl Wallet {
+    /// Creates a new wallet with the given password as the xor mask
     pub fn new(password: String) -> Wallet {
         let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
         let phrase = mnemonic.phrase();
@@ -42,7 +48,7 @@ impl Wallet {
         Wallet {
             pad,
             verification_key: verification_key.to_bytes().to_vec(),
-            accounts: Accounts::new(parent_derive_xprv.to_bytes()),
+            accounts: vec![AccountData::new()],
         }
     }
 
@@ -70,7 +76,7 @@ impl Wallet {
     }
 
     pub fn run(&self) {
-        let mut account = self.accounts.default_account();
+        let mut account = &self.accounts[0];
 
         loop {
             let num = account.run();
@@ -97,13 +103,19 @@ impl Wallet {
         let child_xpub = child_xprv.public_key();
         (child_xprv, child_xpub)
     }
+
+    pub fn recreate(&self) {
+        for account in self.accounts {
+            let (xprv, xpub) = create_keys_from_path(self.seed, account.path);
+            
+        }
+    }
 }
 
-// The index of the account in the vector serves as the account number
 #[derive(Serialize, Deserialize)]
 pub struct Accounts {
     /// The parent private key deriving all accounts
-    pub deriving_key: Vec<u8>,
+    pub deriving_key: PrivateKeyBytes,
     /// A vector of derived accounts
     pub accounts: Vec<Account>,
 }
@@ -111,7 +123,6 @@ pub struct Accounts {
 impl Accounts {
     /// Instantiates TempData struct with the deriving key, which will be used to derive all child accounts
     pub fn new(deriving_key: PrivateKeyBytes) -> Self {
-        // Can make it create the first account by default
         Accounts {
             deriving_key,
             accounts: vec![Account::new(&deriving_key, 0)]
@@ -147,7 +158,7 @@ impl Accounts {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub nonce: u64,
-    prv_key: Vec<u8>,
+    prv_key: PrivateKeyBytes,
     pub address: String,
 }
 
@@ -169,7 +180,7 @@ impl Account {
 
         Account {
             nonce: 0,
-            prv_key: child_xprv.to_bytes().to_vec(),
+            prv_key: child_xprv.to_bytes(),
             address,
         }
     }

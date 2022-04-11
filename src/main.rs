@@ -62,10 +62,12 @@ fn display_menu_two() {
                 println!("{}", "Enter Password: ");
                 let password = read_user_input();
 
-                // if password is correct, this will be the correct seed
                 match d.verify_password(password) {
-                    // TODO: need to somehow reinstantiate the temp data
-                    true => println!("success"), //run_wallet(),
+                    true => {
+                        // TODO: reinstantiate accounts using vector of nonces and paths
+                        // derive the first default account using the path
+                        d.accounts[0]
+                    },
                     false => println!("Incorrect password"),
                 }
             }
