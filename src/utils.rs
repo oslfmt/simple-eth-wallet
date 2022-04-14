@@ -1,4 +1,5 @@
 use std::io;
+use bip32::{ChildNumber, XPrv};
 
 /// Returns clean (no newline) user input
 pub fn read_user_input() -> String {
@@ -26,6 +27,11 @@ pub fn xor(a: &[u8], b: &[u8]) -> Result<Vec<u8>, String> {
     } else {
         Err(String::from("Byte arrays must be same length"))
     }
+}
+
+pub fn derive_child_secret_key(parent_key: &XPrv, index: u32) -> [u8; 32] {
+    let child = parent_key.derive_child(ChildNumber::new(index, false).unwrap()).unwrap();
+    child.to_bytes()
 }
 
 #[cfg(test)]

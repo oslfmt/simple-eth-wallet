@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
-use std::cell::RefCell;
 
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
 use bip32::{XPrv, XPub, ChildNumber, DerivationPath, PrivateKeyBytes};
@@ -24,17 +23,11 @@ pub struct Wallet {
     pub pad: Vec<u8>,
     /// The public key used to verify logins
     pub verification_key: Vec<u8>,
-    pub accounts: Vec<AccountData,
-}
-
-#[derive(Serialize, Deserialize)]
-struct AccountData {
-    pub nonce: u32,
-    pub path: String,
+    accounts_metadata: AccountMetadata,
 }
 
 impl Wallet {
-    /// Creates a new wallet with the given password as the xor mask
+    /// Creates a new wallet with the given password as the xor mask.
     pub fn new(password: String) -> Wallet {
         let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
         let phrase = mnemonic.phrase();
@@ -48,13 +41,20 @@ impl Wallet {
         Wallet {
             pad,
             verification_key: verification_key.to_bytes().to_vec(),
-            accounts: vec![AccountData::new()],
+            accounts_metadata: AccountMetadata::new(parent_derive_xprv),
         }
     }
 
     /// Stores the key user data that is necessary for logging in again
-    pub fn store(&self) -> Result<(), String> {
+    pub fn store(&mut self) -> Result<(), String> {
         let mut file = File::create("userdata.txt").unwrap();
+
+        // clear all sensitive data
+        self.accounts_metadata.deriving_key = None;
+        for account in &mut self.accounts_metadata.accounts {
+            account.prv_key = None;
+        }
+
         let data_bytes = serde_json::to_vec(self).unwrap();
 
         match file.write_all(&data_bytes) {
@@ -75,25 +75,21 @@ impl Wallet {
         }
     }
 
-    pub fn run(&self) {
-        let mut account = &self.accounts[0];
+    /// Starts the wallet with the default account
+    pub fn run(&mut self) {
+        // create the default account
+        self.accounts_metadata.create_account(0);
+        // fetch the deriving key
+        let deriving_key = match &self.accounts_metadata.deriving_key {
+            Some(k) => k.clone(),
+            None => unreachable!("Deriving key must've been created if wallet was created"),
+        };
 
-        loop {
-            let num = account.run();
-            if num == 3 {
-                // create new account
-                // switch to account
-                account = temp_data.create_account(temp_data.accounts.len());
-            } else if num == 4 {
-                // display list of accounts
-                temp_data.print_accounts();
-                let option = utils::read_user_input().parse::<usize>().unwrap();
-                // switch to account
-                account = temp_data.get_account(option);
-            }
-        }
+        // start account actions
+        self.accounts_metadata.run(deriving_key);
     }
 
+    // TODO: move this to utils
     /// Generate the key pair from a given path
     pub fn create_keys_from_path(seed: &[u8], path: &str) -> (XPrv, XPub) {
         let child_xprv = XPrv::derive_from_path(
@@ -104,38 +100,42 @@ impl Wallet {
         (child_xprv, child_xpub)
     }
 
-    pub fn recreate(&self) {
+/*    pub fn recreate(&self) {
         for account in self.accounts {
             let (xprv, xpub) = create_keys_from_path(self.seed, account.path);
-            
+
         }
-    }
+    }*/
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Accounts {
+struct AccountMetadata {
     /// The parent private key deriving all accounts
-    pub deriving_key: PrivateKeyBytes,
+    #[serde(skip)]
+    pub deriving_key: Option<XPrv>,
     /// A vector of derived accounts
     pub accounts: Vec<Account>,
 }
 
-impl Accounts {
-    /// Instantiates TempData struct with the deriving key, which will be used to derive all child accounts
-    pub fn new(deriving_key: PrivateKeyBytes) -> Self {
-        Accounts {
-            deriving_key,
-            accounts: vec![Account::new(&deriving_key, 0)]
+impl AccountMetadata {
+    /// Creates AccountMetadata with the private deriving key
+    pub fn new(deriving_key: XPrv) -> Self {
+        AccountMetadata {
+            deriving_key: Some(deriving_key),
+            accounts: vec![]
         }
     }
 
-    /// Creates a new account using the deriving key stored in TempData, with specified index
-    /// and adds the created account to the TempData vector
-    /// Returns a clone of the created account
+    /// Creates a new account with specified index. Returns a clone of the created account
     pub fn create_account(&mut self, index: usize) -> Account {
-        let account = Account::new(&self.deriving_key, index);
-        self.accounts.push(account.clone());
-        account
+        match &self.deriving_key {
+            Some(k) => {
+                let account = Account::new(k, index);
+                self.accounts.push(account.clone());
+                account
+            },
+            None => unreachable!(),
+        }
     }
 
     /// Returns a clone of the first account of the accounts vector
@@ -143,27 +143,53 @@ impl Accounts {
         self.accounts[0].clone()
     }
 
-    /// Prints all the accounts associated with user
+    /// Prints all the created accounts in the wallet
     pub fn print_accounts(&self) {
         for (index, acc) in self.accounts.iter().enumerate() {
             println!("{}) {}", index, acc.address);
         }
     }
 
+    /// Returns the account with given index
     pub fn get_account(&self, index: usize) -> Account {
         self.accounts[index].clone()
+    }
+
+    /// Runs an account, allowing for creation of new accounts and switching between accounts
+    /// when user opts to do so.
+    pub fn run(&mut self, deriving_key: XPrv) {
+        let mut account = self.default_account();
+
+        loop {
+            match account.run(&deriving_key) {
+                3 => {
+                    // create new account
+                    let index = self.accounts.len();
+                    account = self.create_account(index);
+                },
+                4 => {
+                    self.print_accounts();
+                    // switch to user selected account
+                    let option = utils::read_user_input().parse::<usize>().unwrap();
+                    account = self.get_account(option);
+                },
+                _ => print!("Invalid option"),
+            }
+        }
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct Account {
+struct Account {
     pub nonce: u64,
-    prv_key: PrivateKeyBytes,
+    pub path: String,
     pub address: String,
+    prv_key: Option<PrivateKeyBytes>,
 }
 
 impl Account {
-    /// Creates a new address within the wallet using HD wallet functionality
+    /// Creates a new account with nonce as 0 and private_key set to none. Private key can later be
+    /// instantiated when needed for signing a transaction.
     /// deriving_key - the parent key with path m/44'/60'/0'/0, used to derive all child accounts
     /// index - the index of the child account
     ///
@@ -178,23 +204,19 @@ impl Account {
         let addr_bytes = generate_eth_address(&pub_key[1..]);
         let address = String::from("0x") + &hex::encode(addr_bytes);
 
+        let mut path = String::from("m/44'/60'/0'/0/");
+        path.push_str(&index.to_string());
+
         Account {
             nonce: 0,
-            prv_key: child_xprv.to_bytes(),
+            path,
+            prv_key: None,
             address,
         }
     }
 
-    /// Returns a reference to the private key associated with the account
-    pub fn private_key(&self) -> &[u8] {
-        &self.prv_key
-    }
-
-    pub fn run(&self) -> u8 {
-        let address = &account.address;
-        let signing_key = account.private_key();
-
-        println!("CURRENT ACCOUNT ADDRESS: {}", address);
+    pub fn run(&mut self, deriving_key: &XPrv) -> u8 {
+        println!("CURRENT ACCOUNT ADDRESS: {}", &self.address);
 
         loop {
             println!("{}", "1) View account balance");
@@ -205,10 +227,14 @@ impl Account {
 
             match option {
                 1 => {
-                    self.query_balance(address);
+                    self.query_balance();
                 },
                 2 => {
-                    self.send_transaction(signing_key);
+                    // if prv_key is non-existent, derive it and set it. Then send transaction.
+                    if let None = self.prv_key {
+                        self.prv_key = Some(utils::derive_child_secret_key(deriving_key, 0));
+                    }
+                    self.send_transaction();
                 },
                 3 => {
                     return 3;
@@ -221,14 +247,14 @@ impl Account {
         }
     }
 
-    fn query_balance(address: &str) {
+    fn query_balance(&self) {
         let resp: Value = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
             .set("Content-Type", "application/json")
             .send_json(ureq::json!({
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "eth_getBalance",
-                        "params": [address, "latest"]
+                        "params": [self.address, "latest"]
                     })).unwrap()
             .into_json().unwrap();
 
@@ -246,7 +272,7 @@ impl Account {
         };
     }
 
-    fn send_transaction(secret_key: &[u8]) {
+    fn send_transaction(&self) {
         println!("Enter recipient address: ");
         let recipient = utils::read_user_input();
         println!("Enter amount to send: ");
@@ -254,7 +280,7 @@ impl Account {
 
         // TODO: add gas price and limit selection (need to be high enough to be mined)
         let tx = RawTransaction::new(
-            1,
+            self.nonce as u128,
             hex::decode(recipient).unwrap().try_into().unwrap(),
             amount,
             2000000000,
@@ -262,7 +288,7 @@ impl Account {
             vec![]
         );
 
-        let rlp_bytes = tx.sign(secret_key, &RINKEBY_CHAIN_ID);
+        let rlp_bytes = tx.sign(&self.prv_key.unwrap(), &RINKEBY_CHAIN_ID);
         let mut final_txn = String::from("0x");
         final_txn.push_str(&hex::encode(rlp_bytes));
 

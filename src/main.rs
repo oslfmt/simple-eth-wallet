@@ -6,9 +6,8 @@ use std::path::Path;
 use std::fs::File;
 use std::io::prelude::*;
 
-use crate::utils::{read_user_input, wei_to_eth, xor};
-use crate::crypto::{keccak512};
-use crate::storage::{Account, Wallet};
+use crate::utils::{read_user_input};
+use crate::storage::Wallet;
 
 fn main() {
     println!("{}", "Starting Rwallet2.0, an HD wallet...");
@@ -30,7 +29,7 @@ fn display_menu_one() {
             println!("{}", "Enter New Password: ");
             let password = read_user_input();
 
-            let wallet = Wallet::new(password);
+            let mut wallet = Wallet::new(password);
             wallet.run();
 
             match wallet.store() {
@@ -66,7 +65,8 @@ fn display_menu_two() {
                     true => {
                         // TODO: reinstantiate accounts using vector of nonces and paths
                         // derive the first default account using the path
-                        d.accounts[0]
+                        //let wallet = d.recreate();
+                        //wallet.run();
                     },
                     false => println!("Incorrect password"),
                 }
