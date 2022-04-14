@@ -1,9 +1,8 @@
 use std::fs::File;
 use std::io::prelude::*;
-use std::str::FromStr;
 
 use bip39::{Mnemonic, MnemonicType, Language, Seed};
-use bip32::{XPrv, XPub, ChildNumber, DerivationPath, PrivateKeyBytes};
+use bip32::{XPrv, ChildNumber, PrivateKeyBytes};
 use bip32::secp256k1::elliptic_curve::sec1::ToEncodedPoint;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
@@ -23,6 +22,7 @@ pub struct Wallet {
     pub pad: Vec<u8>,
     /// The public key used to verify logins
     pub verification_key: Vec<u8>,
+    /// Accounts associated with this wallet
     accounts_metadata: AccountMetadata,
 }
 
@@ -35,8 +35,27 @@ impl Wallet {
         let seed = Seed::new(&mnemonic, "");
 
         let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-        let (_, verification_key) = Wallet::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
-        let (parent_derive_xprv, _) = Wallet::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
+        let (_, verification_key) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
+        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
+
+        Wallet {
+            pad,
+            verification_key: verification_key.to_bytes().to_vec(),
+            accounts_metadata: AccountMetadata::new(parent_derive_xprv),
+        }
+    }
+
+    /// Imports a wallet
+    // TODO: very similar to new function except for a few lines, may refactor
+    pub fn from(password: String) -> Wallet {
+        println!("Enter your mnemonic phrase to restore your wallet:\n");
+        let phrase = utils::read_user_input();
+        let mnemonic = Mnemonic::from_phrase(&phrase, Language::English).unwrap();
+        let seed = Seed::new(&mnemonic, "");
+
+        let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
+        let (_, verification_key) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
+        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
 
         Wallet {
             pad,
@@ -66,11 +85,11 @@ impl Wallet {
     pub fn verify_password(&mut self, password: String) -> bool {
         let password_hash = keccak512(password.as_bytes());
         let seed = utils::xor(&password_hash, &self.pad).unwrap();
-        let (_, xpub) = Wallet::create_keys_from_path(&seed, "m/44'/60'/0'");
+        let (_, xpub) = utils::create_keys_from_path(&seed, "m/44'/60'/0'");
 
         if xpub.to_bytes().to_vec() == self.verification_key {
             // set the deriving key
-            let (parent_derive_xprv, _) = Wallet::create_keys_from_path(&seed, "m/44'/60'/0'/0");
+            let (parent_derive_xprv, _) = utils::create_keys_from_path(&seed, "m/44'/60'/0'/0");
             self.accounts_metadata.deriving_key = Some(parent_derive_xprv);
 
             true
@@ -100,15 +119,7 @@ impl Wallet {
     }
 
     // TODO: move this to utils
-    /// Generate the key pair from a given path
-    pub fn create_keys_from_path(seed: &[u8], path: &str) -> (XPrv, XPub) {
-        let child_xprv = XPrv::derive_from_path(
-            seed,
-            &DerivationPath::from_str(path).unwrap()
-        ).unwrap();
-        let child_xpub = child_xprv.public_key();
-        (child_xprv, child_xpub)
-    }
+
 }
 
 #[derive(Serialize, Deserialize)]

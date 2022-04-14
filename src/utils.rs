@@ -1,5 +1,6 @@
 use std::io;
-use bip32::{ChildNumber, XPrv};
+use std::str::FromStr;
+use bip32::{ChildNumber, XPrv, XPub, DerivationPath};
 
 /// Returns clean (no newline) user input
 pub fn read_user_input() -> String {
@@ -27,6 +28,16 @@ pub fn xor(a: &[u8], b: &[u8]) -> Result<Vec<u8>, String> {
     } else {
         Err(String::from("Byte arrays must be same length"))
     }
+}
+
+/// Generate the key pair from a given path
+pub fn create_keys_from_path(seed: &[u8], path: &str) -> (XPrv, XPub) {
+    let child_xprv = XPrv::derive_from_path(
+        seed,
+        &DerivationPath::from_str(path).unwrap()
+    ).unwrap();
+    let child_xpub = child_xprv.public_key();
+    (child_xprv, child_xpub)
 }
 
 pub fn derive_child_secret_key(parent_key: &XPrv, index: u32) -> [u8; 32] {
