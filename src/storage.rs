@@ -63,12 +63,16 @@ impl Wallet {
         }
     }
 
-    pub fn verify_password(&self, password: String) -> bool {
+    pub fn verify_password(&mut self, password: String) -> bool {
         let password_hash = keccak512(password.as_bytes());
         let seed = utils::xor(&password_hash, &self.pad).unwrap();
         let (_, xpub) = Wallet::create_keys_from_path(&seed, "m/44'/60'/0'");
 
         if xpub.to_bytes().to_vec() == self.verification_key {
+            // set the deriving key
+            let (parent_derive_xprv, _) = Wallet::create_keys_from_path(&seed, "m/44'/60'/0'/0");
+            self.accounts_metadata.deriving_key = Some(parent_derive_xprv);
+
             true
         } else {
             false
@@ -77,8 +81,6 @@ impl Wallet {
 
     /// Starts the wallet with the default account
     pub fn run(&mut self) {
-        // create the default account
-        self.accounts_metadata.create_account(0);
         // fetch the deriving key
         let deriving_key = match &self.accounts_metadata.deriving_key {
             Some(k) => k.clone(),
@@ -86,7 +88,15 @@ impl Wallet {
         };
 
         // start account actions
-        self.accounts_metadata.run(deriving_key);
+        match self.accounts_metadata.run(deriving_key) {
+            5 => {
+                match self.store() {
+                    Ok(()) => println!("Stored wallet data safely"),
+                    Err(e) => println!("{}", e),
+                };
+            },
+            _ => unreachable!("Code should only return quit flag (5)"),
+        };
     }
 
     // TODO: move this to utils
@@ -99,13 +109,6 @@ impl Wallet {
         let child_xpub = child_xprv.public_key();
         (child_xprv, child_xpub)
     }
-
-/*    pub fn recreate(&self) {
-        for account in self.accounts {
-            let (xprv, xpub) = create_keys_from_path(self.seed, account.path);
-
-        }
-    }*/
 }
 
 #[derive(Serialize, Deserialize)]
@@ -118,11 +121,11 @@ struct AccountMetadata {
 }
 
 impl AccountMetadata {
-    /// Creates AccountMetadata with the private deriving key
+    /// Creates AccountMetadata with the private deriving key and a default account
     pub fn new(deriving_key: XPrv) -> Self {
         AccountMetadata {
-            deriving_key: Some(deriving_key),
-            accounts: vec![]
+            deriving_key: Some(deriving_key.clone()),
+            accounts: vec![Account::new(&deriving_key, 0)]
         }
     }
 
@@ -157,7 +160,7 @@ impl AccountMetadata {
 
     /// Runs an account, allowing for creation of new accounts and switching between accounts
     /// when user opts to do so.
-    pub fn run(&mut self, deriving_key: XPrv) {
+    pub fn run(&mut self, deriving_key: XPrv) -> u8 {
         let mut account = self.default_account();
 
         loop {
@@ -172,6 +175,9 @@ impl AccountMetadata {
                     // switch to user selected account
                     let option = utils::read_user_input().parse::<usize>().unwrap();
                     account = self.get_account(option);
+                },
+                5 => {
+                    return 5;
                 },
                 _ => print!("Invalid option"),
             }
@@ -223,6 +229,7 @@ impl Account {
             println!("{}", "2) Send a transaction");
             println!("{}", "3) Create another account");
             println!("{}", "4) Switch account");
+            println!("{}", "5) Quit");
             let option = utils::read_user_input().parse::<u8>().unwrap();
 
             match option {
@@ -241,6 +248,9 @@ impl Account {
                 },
                 4 => {
                     return 4;
+                },
+                5 => {
+                    return 5;
                 },
                 _ => println!("{}", "Invalid option"),
             }

@@ -28,14 +28,8 @@ fn display_menu_one() {
         1 => {
             println!("{}", "Enter New Password: ");
             let password = read_user_input();
-
             let mut wallet = Wallet::new(password);
             wallet.run();
-
-            match wallet.store() {
-                Ok(()) => println!("Stored wallet data safely"),
-                Err(e) => println!("{}", e),
-            }
         },
         2 => {
             //import_wallet();
@@ -54,22 +48,19 @@ fn display_menu_two() {
             let mut file = File::open("./userdata.txt").unwrap();
             let mut buf = String::new();
             file.read_to_string(&mut buf).unwrap();
-            let d: Wallet = serde_json::from_str(&buf).unwrap();
+            let mut stored_wallet: Wallet = serde_json::from_str(&buf).unwrap();
 
             loop {
-                // prompt user to enter password
                 println!("{}", "Enter Password: ");
                 let password = read_user_input();
 
-                match d.verify_password(password) {
+                match stored_wallet.verify_password(password) {
                     true => {
-                        // TODO: reinstantiate accounts using vector of nonces and paths
-                        // derive the first default account using the path
-                        //let wallet = d.recreate();
-                        //wallet.run();
+                        stored_wallet.run();
+                        return
                     },
                     false => println!("Incorrect password"),
-                }
+                };
             }
         },
         2 => {
