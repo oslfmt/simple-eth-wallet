@@ -29,3 +29,13 @@ just one particular branch in the tree path. Specifically, it is 118'.
 2. Sending: look into how Keplr, other Cosmos wallets send their transactions.
    Is there a 3rd party service analogous to Infura but for Cosmos? Alternatively,
    I can look into running my own node.
+
+### Update 4/15
+- gRPC
+- REST
+- Tendermint RPC
+- The above I think I need access to a node/am running a Cosmos node
+
+- I can use REST/Tendermint RPC and just send json encoded transaction instead
+of protobufs?
+- Current plan: use datahub Cosmos REST API to send RawTxns
