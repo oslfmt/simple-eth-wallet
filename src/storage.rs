@@ -117,9 +117,6 @@ impl Wallet {
             _ => unreachable!("Code should only return quit flag (5)"),
         };
     }
-
-    // TODO: move this to utils
-
 }
 
 #[derive(Serialize, Deserialize)]
