@@ -117,9 +117,6 @@ impl Wallet {
             _ => unreachable!("Code should only return quit flag (5)"),
         };
     }
-
-    // TODO: move this to utils
-
 }
 
 #[derive(Serialize, Deserialize)]
@@ -140,21 +137,21 @@ impl AccountMetadata {
         }
     }
 
-    /// Creates a new account with specified index. Returns a clone of the created account
-    pub fn create_account(&mut self, index: usize) -> Account {
+    /// Creates a new account with specified index and returns a reference to it
+    pub fn create_account(&mut self, index: usize) -> &mut Account {
         match &self.deriving_key {
             Some(k) => {
                 let account = Account::new(k, index);
-                self.accounts.push(account.clone());
-                account
+                self.accounts.push(account);
+                self.get_account(index)
             },
             None => unreachable!(),
         }
     }
 
-    /// Returns a clone of the first account of the accounts vector
-    pub fn default_account(&self) -> Account {
-        self.accounts[0].clone()
+    /// Returns the first account of the accounts vector
+    pub fn default_account(&mut self) -> &mut Account {
+        &mut self.accounts[0]
     }
 
     /// Prints all the created accounts in the wallet
@@ -165,8 +162,8 @@ impl AccountMetadata {
     }
 
     /// Returns the account with given index
-    pub fn get_account(&self, index: usize) -> Account {
-        self.accounts[index].clone()
+    pub fn get_account(&mut self, index: usize) -> &mut Account {
+        &mut self.accounts[index]
     }
 
     /// Runs an account, allowing for creation of new accounts and switching between accounts
@@ -250,7 +247,11 @@ impl Account {
                 2 => {
                     // if prv_key is non-existent, derive it and set it. Then send transaction.
                     if let None = self.prv_key {
-                        self.prv_key = Some(utils::derive_child_secret_key(deriving_key, 0));
+                        let index = self.path.split("/")
+                            .into_iter()
+                            .last().unwrap()
+                            .parse::<u32>().unwrap();
+                        self.prv_key = Some(utils::derive_child_secret_key(deriving_key, index));
                     }
                     self.send_transaction();
                 },
@@ -293,15 +294,18 @@ impl Account {
         };
     }
 
-    fn send_transaction(&self) {
+    fn send_transaction(&mut self) {
         println!("Enter recipient address: ");
         let recipient = utils::read_user_input();
+
+        // TODO: let user enter amount as ETH instead of wei
         println!("Enter amount to send: ");
         let amount: u128 = utils::read_user_input().parse::<u128>().unwrap();
 
         // TODO: add gas price and limit selection (need to be high enough to be mined)
         let tx = RawTransaction::new(
             self.nonce as u128,
+            // TODO: error handling of user input
             hex::decode(recipient).unwrap().try_into().unwrap(),
             amount,
             2000000000,
@@ -323,7 +327,10 @@ impl Account {
                     })).unwrap()
             .into_string().unwrap();
 
+        // TODO: should not update nonce if transaction fails
+        self.nonce += 1;
+
         println!("{}", resp);
     }
 }
-
+// TODO: in case of ctrl+c, need to write data cleanly to file, or else things like nonce won't be updated
