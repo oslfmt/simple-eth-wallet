@@ -18,3 +18,6 @@ serde_json = "1.0.79"
 tiny-bip39 = "0.8.2"
 bip32 = { version = "0.3.0", features = ["secp256k1"] }
 thiserror = "1.0.30"
+
+[dev-dependencies]
+test-case = "2.0.2"

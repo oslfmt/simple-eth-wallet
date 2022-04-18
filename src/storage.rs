@@ -233,6 +233,7 @@ impl Account {
         println!("CURRENT ACCOUNT ADDRESS: {}", &self.address);
 
         loop {
+            // TODO: remove manual query of account balance in place of automatic fetch
             println!("{}", "1) View account balance");
             println!("{}", "2) Send a transaction");
             println!("{}", "3) Create another account");
@@ -297,16 +298,16 @@ impl Account {
     fn send_transaction(&mut self) {
         let recipient = utils::get_valid_address_bytes();
 
-        // TODO: let user enter amount as ETH instead of wei
-        println!("Enter amount to send: ");
-        let amount: u128 = utils::read_user_input().parse::<u128>().unwrap();
+        // TODO: check that amount is less than the current balance
+        println!("Enter ETH amount to send: ");
+        let eth_amount: f64 = utils::read_user_input().parse::<f64>().unwrap();
+        let wei_amount: u128 = utils::eth_to_wei(eth_amount);
 
-        // TODO: add gas price and limit selection (need to be high enough to be mined)
+        // TODO: add gas price and gas limit selection (need to be high enough to be mined)
         let tx = RawTransaction::new(
             self.nonce as u128,
-            // TODO: error handling of user input
             recipient,
-            amount,
+            wei_amount,
             2000000000,
             1000000,
             vec![]
@@ -316,6 +317,7 @@ impl Account {
         let mut final_txn = String::from("0x");
         final_txn.push_str(&hex::encode(rlp_bytes));
 
+        // TODO: before sending transaction print out confirmation receipt
         let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
             .set("Content-Type", "application/json")
             .send_json(ureq::json!({
@@ -326,9 +328,10 @@ impl Account {
                     })).unwrap()
             .into_string().unwrap();
 
-        // TODO: should not update nonce if transaction fails
+        // TODO: should not update nonce if transaction fails (review nonce management)
         self.nonce += 1;
 
+        // TODO: make txn response prettier
         println!("{}", resp);
     }
 }

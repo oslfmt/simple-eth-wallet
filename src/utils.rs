@@ -27,6 +27,12 @@ pub fn wei_to_eth(amount: u128) -> String {
     (amount as f64 / 10_f64.powf(18 as f64)).to_string()
 }
 
+/// Converts an ETH amount to corresponding wei amount.
+/// NOTE: any wei amount less than 1 is invalid and will truncate to 0
+pub fn eth_to_wei(amount: f64) -> u128 {
+    (amount * 10_f64.powf(18 as f64)) as u128
+}
+
 /// Returns the XOR of two byte arrays. The byte arrays must be the same length
 pub fn xor(a: &[u8], b: &[u8]) -> Result<Vec<u8>, String> {
     if a.len() == b.len() {
@@ -61,13 +67,13 @@ pub fn get_valid_address_bytes() -> [u8; 20] {
         let recipient = read_user_input();
 
         match sanitize_address(recipient) {
-            Ok(recipient_bytes) => recipient_bytes,
+            Ok(recipient_bytes) => return recipient_bytes,
             Err(e) => {
                 // TODO: prints raw enum variant, not error message
                 println!("{:?}", e);
                 continue
             },
-        };
+        }
     }
 }
 
@@ -97,6 +103,41 @@ fn vec_to_array<T, const N: usize>(v: Vec<T>) -> Result<[T; N], String> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+/*    #[test_case(1.0 => 1000000000000000000 ; "a whole number eth amount")]
+    #[test_case(1.35 => 1350000000000000000 ; "a fractional eth amount")]
+    #[test_case(0.00000000000000000001 => 0 ; "an eth amount smaller than 1 wei")]*/
+    fn test_eth_to_wei_1() {
+        let amount = 1.0;
+        let result = eth_to_wei(amount);
+        let expected: u128 = 1000000000000000000;
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eth_to_wei_2() {
+        let amount = 1.35;
+        let result = eth_to_wei(amount);
+        let expected: u128 = 1350000000000000000;
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eth_to_wei_3() {
+        let amount = 0.00000000000000000001;
+        let result = eth_to_wei(amount);
+        let expected: u128 = 0;
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_eth_to_wei_4() {
+        let amount = 0.00000000000000000099;
+        let result = eth_to_wei(amount);
+        let expected: u128 = 0;
+        assert_eq!(result, expected);
+    }
 
     #[test]
     fn test_sanitize_address() {
