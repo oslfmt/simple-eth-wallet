@@ -1,6 +1,16 @@
 use std::io;
 use std::str::FromStr;
+
+use thiserror::Error;
 use bip32::{ChildNumber, XPrv, XPub, DerivationPath};
+
+#[derive(Error, Debug)]
+pub enum AddressParseError {
+    #[error("Invalid hex character")]
+    InvalidHexCharacter,
+    #[error("Invalid address length")]
+    InvalidLength,
+}
 
 /// Returns clean (no newline) user input
 pub fn read_user_input() -> String {
@@ -45,9 +55,56 @@ pub fn derive_child_secret_key(parent_key: &XPrv, index: u32) -> [u8; 32] {
     child.to_bytes()
 }
 
+pub fn get_valid_address_bytes() -> [u8; 20] {
+    loop {
+        println!("Enter recipient address: ");
+        let recipient = read_user_input();
+
+        match sanitize_address(recipient) {
+            Ok(recipient_bytes) => recipient_bytes,
+            Err(e) => {
+                // TODO: prints raw enum variant, not error message
+                println!("{:?}", e);
+                continue
+            },
+        };
+    }
+}
+
+// TODO: figure out a cleaner way to do this
+fn sanitize_address(address: String) -> Result<[u8; 20], AddressParseError> {
+    let raw_address = match address.strip_prefix("0x") {
+        Some(r) => r,
+        None => &address,
+    };
+
+    match hex::decode(raw_address) {
+        Ok(bytes) => {
+            match vec_to_array::<u8, 20>(bytes) {
+                Ok(r) => Ok(r),
+                Err(_e) => Err(AddressParseError::InvalidLength)
+            }
+        },
+        Err(_e) => Err(AddressParseError::InvalidHexCharacter),
+    }
+}
+
+fn vec_to_array<T, const N: usize>(v: Vec<T>) -> Result<[T; N], String> {
+    v.try_into()
+        .map_err(|e| format!("Invalid length"))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_sanitize_address() {
+        let address = String::from("0x73363901CD60Ace0Df1df46111fA999416Bb9Bd1");
+        let result = sanitize_address(address).unwrap();
+        let expected: [u8; 20] = hex::decode("73363901CD60Ace0Df1df46111fA999416Bb9Bd1").unwrap().try_into().unwrap();
+        assert_eq!(result, expected);
+    }
 
     #[test]
     fn test_xor() {

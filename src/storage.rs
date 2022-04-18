@@ -13,8 +13,7 @@ use crate::crypto::{generate_eth_address, keccak512};
 use crate::utils;
 
 const RINKEBY_CHAIN_ID: u8 = 4;
-// ATOM is coin 118
-// const COSMOS_PATH: &str = "m/44'/118'/0'/0/0";
+const ETH_DERIVE_KEY_PATH: &str = "m/44'/60'/0'/0";
 
 #[derive(Serialize, Deserialize)]
 pub struct Wallet {
@@ -36,7 +35,7 @@ impl Wallet {
 
         let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
         let (_, verification_key) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
-        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
+        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), ETH_DERIVE_KEY_PATH);
 
         Wallet {
             pad,
@@ -55,7 +54,7 @@ impl Wallet {
 
         let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
         let (_, verification_key) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
-        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'/0");
+        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), ETH_DERIVE_KEY_PATH);
 
         Wallet {
             pad,
@@ -89,7 +88,7 @@ impl Wallet {
 
         if xpub.to_bytes().to_vec() == self.verification_key {
             // set the deriving key
-            let (parent_derive_xprv, _) = utils::create_keys_from_path(&seed, "m/44'/60'/0'/0");
+            let (parent_derive_xprv, _) = utils::create_keys_from_path(&seed, ETH_DERIVE_KEY_PATH);
             self.accounts_metadata.deriving_key = Some(parent_derive_xprv);
 
             true
@@ -209,7 +208,8 @@ impl Account {
     ///
     /// The returned key has path: m/44'/60'/0'/0/x, where x = 0,1,2,3...
     pub fn new(deriving_key: &XPrv, index: usize) -> Self {
-        let child_xprv = deriving_key.derive_child(ChildNumber::new(index as u32, false).unwrap()).unwrap();
+        let child_number = ChildNumber::new(index as u32, false).unwrap();
+        let child_xprv = deriving_key.derive_child(child_number).unwrap();
         let child_xpub = child_xprv.public_key();
 
         // Convert default acct pub_key to Ethereum address by taking hash of UNCOMPRESSED point
@@ -295,8 +295,7 @@ impl Account {
     }
 
     fn send_transaction(&mut self) {
-        println!("Enter recipient address: ");
-        let recipient = utils::read_user_input();
+        let recipient = utils::get_valid_address_bytes();
 
         // TODO: let user enter amount as ETH instead of wei
         println!("Enter amount to send: ");
@@ -306,7 +305,7 @@ impl Account {
         let tx = RawTransaction::new(
             self.nonce as u128,
             // TODO: error handling of user input
-            hex::decode(recipient).unwrap().try_into().unwrap(),
+            recipient,
             amount,
             2000000000,
             1000000,
