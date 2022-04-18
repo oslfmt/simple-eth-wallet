@@ -61,13 +61,13 @@ pub fn derive_child_secret_key(parent_key: &XPrv, index: u32) -> [u8; 32] {
     child.to_bytes()
 }
 
-pub fn get_valid_address_bytes() -> [u8; 20] {
+pub fn get_valid_address_bytes() -> (String, [u8; 20]) {
     loop {
         println!("Enter recipient address: ");
         let recipient = read_user_input();
 
-        match sanitize_address(recipient) {
-            Ok(recipient_bytes) => return recipient_bytes,
+        match sanitize_address(recipient.clone()) {
+            Ok(recipient_bytes) => return (recipient, recipient_bytes),
             Err(e) => {
                 // TODO: prints raw enum variant, not error message
                 println!("{:?}", e);

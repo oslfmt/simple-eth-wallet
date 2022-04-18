@@ -10,7 +10,7 @@ use hex;
 use ethereum_tx_sign::RawTransaction;
 
 use crate::crypto::{generate_eth_address, keccak512};
-use crate::utils;
+use crate::{read_user_input, utils};
 
 const RINKEBY_CHAIN_ID: u8 = 4;
 const ETH_DERIVE_KEY_PATH: &str = "m/44'/60'/0'/0";
@@ -194,9 +194,13 @@ impl AccountMetadata {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Account {
+    /// The number of confirmed transactions sent from this account
     pub nonce: u64,
+    /// The full HD derivation path of this account
     pub path: String,
+    /// The address of this account
     pub address: String,
+    /// The private key of the account
     prv_key: Option<PrivateKeyBytes>,
 }
 
@@ -296,43 +300,70 @@ impl Account {
     }
 
     fn send_transaction(&mut self) {
-        let recipient = utils::get_valid_address_bytes();
+        let (recipient, recipient_bytes) = utils::get_valid_address_bytes();
 
         // TODO: check that amount is less than the current balance
         println!("Enter ETH amount to send: ");
         let eth_amount: f64 = utils::read_user_input().parse::<f64>().unwrap();
         let wei_amount: u128 = utils::eth_to_wei(eth_amount);
 
-        // TODO: add gas price and gas limit selection (need to be high enough to be mined)
+        // estimate the gas price
+        let resp: Value = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+            .set("Content-Type", "application/json")
+            .send_json(ureq::json!({
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "eth_gasPrice",
+                "params": []
+            })).unwrap()
+            .into_json().unwrap();
+        let gas_price = resp["result"].as_str().unwrap().strip_prefix("0x").unwrap();
+        let price = u128::from_str_radix(gas_price, 16).unwrap();
+
+        // create and sign transaction
         let tx = RawTransaction::new(
             self.nonce as u128,
-            recipient,
+            recipient_bytes,
             wei_amount,
-            2000000000,
-            1000000,
+            price,
+            21000,
             vec![]
         );
-
         let rlp_bytes = tx.sign(&self.prv_key.unwrap(), &RINKEBY_CHAIN_ID);
         let mut final_txn = String::from("0x");
         final_txn.push_str(&hex::encode(rlp_bytes));
 
-        // TODO: before sending transaction print out confirmation receipt
-        let resp: String = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
-            .set("Content-Type", "application/json")
-            .send_json(ureq::json!({
+        println!("Transaction details:\n\tTO: {:?}\n\tAMOUNT: {} ETH\n\tGAS PRICE: {} wei\n\t", recipient, eth_amount, price);
+        println!("Press 1 to CONFIRM");
+        println!("Press any other number to CANCEL");
+        let user_option = read_user_input().parse::<u8>().unwrap();
+
+        match user_option {
+            1 => {
+                let resp: Value = ureq::post("https://rinkeby.infura.io/v3/39f702e71cd84987bd1ec2550a54375e")
+                    .set("Content-Type", "application/json")
+                    .send_json(ureq::json!({
                         "jsonrpc": "2.0",
-                        "id": 1,
+                        "id": "1",
                         "method": "eth_sendRawTransaction",
-                        "params": [final_txn]
+                        "params": [final_txn],
                     })).unwrap()
-            .into_string().unwrap();
+                    .into_json().unwrap();
 
-        // TODO: should not update nonce if transaction fails (review nonce management)
-        self.nonce += 1;
-
-        // TODO: make txn response prettier
-        println!("{}", resp);
+                if let Some(s) = resp["result"].as_str() {
+                    if s != "0x0" {
+                        self.nonce += 1;
+                        println!("Transaction {} successfully sent", s);
+                    } else {
+                        println!("Transaction not yet available");
+                    }
+                } else {
+                    println!("Error occurred in sending transaction");
+                }
+            },
+            _ => println!("Transaction canceled")
+        };
     }
 }
 // TODO: in case of ctrl+c, need to write data cleanly to file, or else things like nonce won't be updated
+// TODO: user input error handling: currently cannot handle non-digits
