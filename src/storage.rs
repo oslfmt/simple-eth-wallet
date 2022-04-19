@@ -26,35 +26,29 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    /// Creates a new wallet with the given password as the xor mask.
+    /// Creates a new wallet with the given password
     pub fn new(password: String) -> Wallet {
         let mnemonic = Mnemonic::new(MnemonicType::Words12, Language::English);
         let phrase = mnemonic.phrase();
-        println!("Here is your secret recovery phrase: {}", phrase);
         let seed = Seed::new(&mnemonic, "");
+        println!("Here is your secret recovery phrase: {}", phrase);
 
-        let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-        let (_, verification_key) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
-        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), ETH_DERIVE_KEY_PATH);
-
-        Wallet {
-            pad,
-            verification_key: verification_key.to_bytes().to_vec(),
-            accounts_metadata: AccountMetadata::new(parent_derive_xprv),
-        }
+        Wallet::generate_wallet(seed.as_bytes(), password)
     }
 
-    /// Imports a wallet
-    // TODO: very similar to new function except for a few lines, may refactor
-    pub fn from(password: String) -> Wallet {
-        println!("Enter your mnemonic phrase to restore your wallet:\n");
-        let phrase = utils::read_user_input();
+    /// Recreates a wallet with the given seed phrase and new password
+    pub fn from(password: String, phrase: String) -> Wallet {
         let mnemonic = Mnemonic::from_phrase(&phrase, Language::English).unwrap();
         let seed = Seed::new(&mnemonic, "");
 
-        let pad = utils::xor(seed.as_bytes(), &keccak512(password.as_bytes())).unwrap();
-        let (_, verification_key) = utils::create_keys_from_path(seed.as_bytes(), "m/44'/60'/0'");
-        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed.as_bytes(), ETH_DERIVE_KEY_PATH);
+        Wallet::generate_wallet(seed.as_bytes(), password)
+    }
+
+    /// Utility function to generate a fresh wallet instance
+    fn generate_wallet(seed: &[u8], password: String) -> Wallet {
+        let pad = utils::xor(seed, &keccak512(password.as_bytes())).unwrap();
+        let (_, verification_key) = utils::create_keys_from_path(seed, "m/44'/60'/0'");
+        let (parent_derive_xprv, _) = utils::create_keys_from_path(seed, ETH_DERIVE_KEY_PATH);
 
         Wallet {
             pad,
@@ -365,5 +359,4 @@ impl Account {
         };
     }
 }
-// TODO: in case of ctrl+c, need to write data cleanly to file, or else things like nonce won't be updated
 // TODO: user input error handling: currently cannot handle non-digits

@@ -9,6 +9,7 @@ use std::io::prelude::*;
 use crate::utils::{read_user_input};
 use crate::storage::Wallet;
 
+// TODO: in case of ctrl+c, need to write data cleanly to file, or else things like nonce won't be updated
 fn main() {
     println!("{}", "Starting Rwallet2.0, an HD wallet...");
 
@@ -34,7 +35,9 @@ fn display_menu_one() {
         2 => {
             println!("{}", "Enter Password: ");
             let password = read_user_input();
-            let mut wallet = Wallet::from(password);
+            println!("Enter your mnemonic phrase to restore your wallet:\n");
+            let phrase = utils::read_user_input();
+            let mut wallet = Wallet::from(password, phrase);
             wallet.run();
         },
         _ => println!("{}", "Invalid option"),
@@ -69,7 +72,9 @@ fn display_menu_two() {
         2 => {
             println!("{}", "Enter Password: ");
             let password = read_user_input();
-            let mut wallet = Wallet::from(password);
+            println!("Enter your mnemonic phrase to restore your wallet:\n");
+            let phrase = utils::read_user_input();
+            let mut wallet = Wallet::from(password, phrase);
             wallet.run();
         },
         _ => println!("{}", "Invalid option"),
