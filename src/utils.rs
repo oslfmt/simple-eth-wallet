@@ -97,7 +97,7 @@ fn sanitize_address(address: String) -> Result<[u8; 20], AddressParseError> {
 
 fn vec_to_array<T, const N: usize>(v: Vec<T>) -> Result<[T; N], String> {
     v.try_into()
-        .map_err(|e| format!("Invalid length"))
+        .map_err(|_e| format!("Invalid length"))
 }
 
 #[cfg(test)]

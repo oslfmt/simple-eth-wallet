@@ -45,38 +45,57 @@ fn display_menu_one() {
 }
 
 fn display_menu_two() {
-    println!("{}", "1) Login");
-    println!("{}", "2) Import wallet");
-    let option = read_user_input().parse::<u8>().unwrap();
 
-    match option {
-        1 => {
-            let mut file = File::open("./userdata.txt").unwrap();
-            let mut buf = String::new();
-            file.read_to_string(&mut buf).unwrap();
-            let mut stored_wallet: Wallet = serde_json::from_str(&buf).unwrap();
+    loop {
+        println!("1) Login");
+        println!("2) Import wallet");
+        println!("3) QUIT");
+        match read_user_input().parse::<u8>() {
+            Ok(option) => {
+                match option {
+                    1 => {
+                        let mut file = File::open("./userdata.txt").unwrap();
+                        let mut buf = String::new();
+                        file.read_to_string(&mut buf).unwrap();
+                        let mut stored_wallet: Wallet = serde_json::from_str(&buf).unwrap();
 
-            loop {
-                println!("{}", "Enter Password: ");
-                let password = read_user_input();
+                        loop {
+                            println!("Enter Password (or type q to return to main menu): ");
+                            let user_input = read_user_input();
 
-                match stored_wallet.verify_password(password) {
-                    true => {
-                        stored_wallet.run();
-                        return
+                            if user_input == "q" {
+                                break;
+                            } else {
+                                match stored_wallet.verify_password(user_input) {
+                                    true => {
+                                        stored_wallet.run();
+                                        return
+                                    },
+                                    false => println!("Incorrect password"),
+                                };
+                            }
+                        }
                     },
-                    false => println!("Incorrect password"),
-                };
-            }
-        },
-        2 => {
-            println!("{}", "Enter Password: ");
-            let password = read_user_input();
-            println!("Enter your mnemonic phrase to restore your wallet:\n");
-            let phrase = utils::read_user_input();
-            let mut wallet = Wallet::from(password, phrase);
-            wallet.run();
-        },
-        _ => println!("{}", "Invalid option"),
-    }
+                    2 => {
+                        println!("{}", "Enter Password (or type q to return to main menu):");
+                        let password = read_user_input();
+                        if password != "q" {
+                            println!("Enter your mnemonic phrase to restore your wallet (or type q to return to main menu):");
+                            let phrase = utils::read_user_input();
+
+                            if phrase != "q" {
+                                let mut wallet = Wallet::from(password, phrase);
+                                wallet.run();
+                            }
+                        }
+                    },
+                    3 => return,
+                    _ => println!("{}", "Invalid option"),
+                }
+            },
+            Err(_e) => {
+                println!("Invalid option. Please enter 1 or 2.");
+            },
+        }
+    };
 }
