@@ -61,18 +61,18 @@ pub fn derive_child_secret_key(parent_key: &XPrv, index: u32) -> [u8; 32] {
     child.to_bytes()
 }
 
-pub fn get_valid_address_bytes() -> (String, [u8; 20]) {
+pub fn get_valid_address_bytes() -> Result<(String, [u8; 20]), String> {
     loop {
-        println!("Enter recipient address: ");
+        println!("Enter recipient address (or press q to cancel transaction): ");
         let recipient = read_user_input();
 
-        match sanitize_address(recipient.clone()) {
-            Ok(recipient_bytes) => return (recipient, recipient_bytes),
-            Err(e) => {
-                // TODO: prints raw enum variant, not error message
-                println!("{:?}", e);
-                continue
-            },
+        if recipient != "q" {
+            match sanitize_address(recipient.clone()) {
+                Ok(recipient_bytes) => return Ok((recipient, recipient_bytes)),
+                Err(_e) => println!("Invalid address"),
+            }
+        } else {
+            return Err(format!("User cancel"));
         }
     }
 }

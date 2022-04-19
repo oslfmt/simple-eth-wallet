@@ -38,6 +38,7 @@ impl Wallet {
 
     /// Recreates a wallet with the given seed phrase and new password
     pub fn from(password: String, phrase: String) -> Wallet {
+        // TODO: handle band mnemonics
         let mnemonic = Mnemonic::from_phrase(&phrase, Language::English).unwrap();
         let seed = Seed::new(&mnemonic, "");
 
@@ -159,15 +160,13 @@ impl AccountMetadata {
         &mut self.accounts[index]
     }
 
-    /// Runs an account, allowing for creation of new accounts and switching between accounts
-    /// when user opts to do so.
+    /// Runs an account, allowing for creation of new accounts and switching between accounts when user opts to do so.
     pub fn run(&mut self, deriving_key: XPrv) -> u8 {
         let mut account = self.default_account();
 
         loop {
             match account.run(&deriving_key) {
                 3 => {
-                    // create new account
                     let index = self.accounts.len();
                     account = self.create_account(index);
                 },
@@ -232,14 +231,22 @@ impl Account {
 
         loop {
             // TODO: remove manual query of account balance in place of automatic fetch
-            println!("{}", "1) View account balance");
-            println!("{}", "2) Send a transaction");
-            println!("{}", "3) Create another account");
-            println!("{}", "4) Switch account");
-            println!("{}", "5) Quit");
-            let option = utils::read_user_input().parse::<u8>().unwrap();
+            let user_input = loop {
+                println!("{}", "1) View account balance");
+                println!("{}", "2) Send a transaction");
+                println!("{}", "3) Create another account");
+                println!("{}", "4) Switch account");
+                println!("{}", "5) QUIT");
 
-            match option {
+                match utils::read_user_input().parse::<u8>() {
+                    Ok(option) => break option,
+                    Err(_e) => {
+                        println!("Invalid option");
+                    }
+                }
+            };
+
+            match user_input {
                 1 => {
                     self.query_balance();
                 },
@@ -254,15 +261,9 @@ impl Account {
                     }
                     self.send_transaction();
                 },
-                3 => {
-                    return 3;
-                },
-                4 => {
-                    return 4;
-                },
-                5 => {
-                    return 5;
-                },
+                3 => return 3,
+                4 => return 4,
+                5 => return 5,
                 _ => println!("{}", "Invalid option"),
             }
         }
@@ -294,11 +295,19 @@ impl Account {
     }
 
     fn send_transaction(&mut self) {
-        let (recipient, recipient_bytes) = utils::get_valid_address_bytes();
+        let (recipient, recipient_bytes) = match utils::get_valid_address_bytes() {
+            Ok(r) => (r.0, r.1),
+            Err(_e) => return,
+        };
 
         // TODO: check that amount is less than the current balance
-        println!("Enter ETH amount to send: ");
-        let eth_amount: f64 = utils::read_user_input().parse::<f64>().unwrap();
+        let eth_amount: f64 =  loop {
+            println!("Enter ETH amount to send: ");
+            match utils::read_user_input().parse::<f64>() {
+                Ok(v) => break v,
+                Err(_e) => println!("Please enter a number"),
+            }
+        };
         let wei_amount: u128 = utils::eth_to_wei(eth_amount);
 
         // estimate the gas price
@@ -330,7 +339,12 @@ impl Account {
         println!("Transaction details:\n\tTO: {:?}\n\tAMOUNT: {} ETH\n\tGAS PRICE: {} wei\n\t", recipient, eth_amount, price);
         println!("Press 1 to CONFIRM");
         println!("Press any other number to CANCEL");
-        let user_option = read_user_input().parse::<u8>().unwrap();
+        let user_option = loop {
+            match read_user_input().parse::<u8>() {
+                Ok(v) => break v,
+                Err(_e) => println!("Please enter a number"),
+            }
+        };
 
         match user_option {
             1 => {
@@ -359,4 +373,3 @@ impl Account {
         };
     }
 }
-// TODO: user input error handling: currently cannot handle non-digits
