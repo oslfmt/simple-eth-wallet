@@ -37,11 +37,8 @@ impl Wallet {
     }
 
     /// Recreates a wallet with the given seed phrase and new password
-    pub fn from(password: String, phrase: String) -> Wallet {
-        // TODO: handle band mnemonics
-        let mnemonic = Mnemonic::from_phrase(&phrase, Language::English).unwrap();
+    pub fn from(password: String, mnemonic: Mnemonic) -> Wallet {
         let seed = Seed::new(&mnemonic, "");
-
         Wallet::generate_wallet(seed.as_bytes(), password)
     }
 

@@ -8,6 +8,7 @@ use std::io::prelude::*;
 
 use crate::utils::{read_user_input};
 use crate::storage::Wallet;
+use bip39::{Mnemonic, Language};
 
 // TODO: in case of ctrl+c, need to write data cleanly to file, or else things like nonce won't be updated
 fn main() {
@@ -33,19 +34,13 @@ fn display_menu_one() {
             wallet.run();
         },
         2 => {
-            println!("{}", "Enter Password: ");
-            let password = read_user_input();
-            println!("Enter your mnemonic phrase to restore your wallet:\n");
-            let phrase = utils::read_user_input();
-            let mut wallet = Wallet::from(password, phrase);
-            wallet.run();
+            import_and_run_wallet();
         },
         _ => println!("{}", "Invalid option"),
     }
 }
 
 fn display_menu_two() {
-
     loop {
         println!("1) Login");
         println!("2) Import wallet");
@@ -76,19 +71,7 @@ fn display_menu_two() {
                             }
                         }
                     },
-                    2 => {
-                        println!("{}", "Enter Password (or type q to return to main menu):");
-                        let password = read_user_input();
-                        if password != "q" {
-                            println!("Enter your mnemonic phrase to restore your wallet (or type q to return to main menu):");
-                            let phrase = utils::read_user_input();
-
-                            if phrase != "q" {
-                                let mut wallet = Wallet::from(password, phrase);
-                                wallet.run();
-                            }
-                        }
-                    },
+                    2 => import_and_run_wallet(),
                     3 => return,
                     _ => println!("{}", "Invalid option"),
                 }
@@ -98,4 +81,32 @@ fn display_menu_two() {
             },
         }
     };
+}
+
+fn import_and_run_wallet() {
+    println!("{}", "Enter Password (or type q to return to main menu):");
+    let password = read_user_input();
+    loop {
+        if &password == "q" {
+            break;
+        } else {
+            loop {
+                println!("Enter your mnemonic phrase to restore your wallet (or type q to return to main menu):");
+                let phrase = utils::read_user_input();
+                if phrase != "q" {
+                    match Mnemonic::from_phrase(&phrase, Language::English) {
+                        Ok(m) => {
+                            let mut wallet = Wallet::from(password.clone(), m);
+                            wallet.run();
+                            break;
+                        },
+                        Err(_e) => println!("Bad mnemonic. Enter 12 or 24 word phrase."),
+                    };
+                } else {
+                    break;
+                };
+            }
+        };
+        break;
+    }
 }
